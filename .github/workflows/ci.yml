@@ -37,7 +37,12 @@ jobs:
           @'
           import ast
           from pathlib import Path
-          for name in ["app.py", "modern_app.py", "tests/公开仓库自检.py", "tests/冒烟测试.py"]:
-              ast.parse(Path(name).read_text(encoding="utf-8"), filename=name)
-              print("[OK]", name)
+          skip_dirs = {".git", "__pycache__", "build", "dist", ".venv", "venv"}
+          files = [
+              path for path in Path(".").rglob("*.py")
+              if not any(part in skip_dirs for part in path.parts)
+          ]
+          for path in sorted(files):
+              ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+              print("[OK]", path)
           '@ | python -
