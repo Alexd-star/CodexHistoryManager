@@ -135,7 +135,7 @@ def main() -> int:
         repaired = store.repair_indexes([SESSION_ID])
         assert repaired["changed"], "索引修复没有更新任何会话"
 
-        print("[OK] 公开仓库自检通过")
+        print("[OK] public repository self check passed")
     return 0
 
 

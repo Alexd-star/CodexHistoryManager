@@ -8,6 +8,11 @@ on:
 permissions:
   contents: write
 
+env:
+  PYTHONUTF8: "1"
+  PYTHONIOENCODING: "utf-8"
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   build-release:
     name: Build and publish release
