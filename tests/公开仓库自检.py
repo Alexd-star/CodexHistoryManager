@@ -6,6 +6,7 @@ import shutil
 import sqlite3
 import sys
 import tempfile
+import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -14,7 +15,7 @@ TEST_APP_HOME = Path(tempfile.mkdtemp(prefix="codex-history-manager-home-"))
 os.environ["CODEX_HISTORY_MANAGER_HOME"] = str(TEST_APP_HOME)
 
 import app as app_module  # noqa: E402
-from app import CodexStore, guess_codex_root, save_config  # noqa: E402
+from app import CodexStore, guess_codex_root, parse_version, save_config  # noqa: E402
 
 
 SESSION_ID = "11111111-1111-4111-8111-111111111111"
@@ -148,8 +149,19 @@ def main() -> int:
             assert snapshot["exists"]["config"], "诊断信息未识别配置文件"
             assert snapshot["writable"]["exports"], "导出目录不可写"
 
+            support_zip = store.create_support_bundle("fixture diagnostics")
+            assert support_zip.exists(), "反馈包未生成"
+            with zipfile.ZipFile(support_zip) as zf:
+                names = set(zf.namelist())
+                joined = "\n".join(names)
+                assert any(name.endswith("诊断信息.json") for name in names), "反馈包缺少诊断 JSON"
+                assert any(name.endswith("说明.txt") for name in names), "反馈包缺少说明文件"
+                assert "rollout-" not in joined and ".jsonl" not in joined.replace("操作日志尾部.jsonl", ""), "反馈包不应包含会话 JSONL"
+
             repaired = store.repair_indexes([SESSION_ID])
             assert repaired["changed"], "索引修复没有更新任何会话"
+
+            assert parse_version("v0.1.10") > parse_version("0.1.2"), "版本比较异常"
 
             print("[OK] public repository self check passed")
         return 0

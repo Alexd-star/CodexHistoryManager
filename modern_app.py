@@ -19,6 +19,7 @@ from app import (
     ApiHandler,
     CodexStore,
     SessionInfo,
+    check_latest_release,
     guess_codex_root,
     iso_to_local_text,
     log_exception,
@@ -288,7 +289,13 @@ class ModernApp(ctk.CTk):
         ctk.CTkButton(web, text="停止", fg_color="#ef4444", command=self.stop_web).grid(row=0, column=3, padx=8)
         ctk.CTkLabel(web, text="Web 服务只绑定 127.0.0.1，适合临时用浏览器查看。", text_color="#667085").grid(row=1, column=0, columnspan=4, sticky="w", padx=8, pady=(0, 8))
 
-        diag = self._card(parent, 2, "诊断中心")
+        product = self._card(parent, 2, "产品支持")
+        ctk.CTkButton(product, text="生成反馈包", command=self.create_support_bundle).grid(row=1, column=0, padx=8, pady=8)
+        ctk.CTkButton(product, text="检查更新", command=self.check_updates).grid(row=1, column=1, padx=8, pady=8)
+        ctk.CTkButton(product, text="打开发布页", fg_color="#eef2ff", text_color="#174b75", command=lambda: webbrowser.open("https://github.com/Alexd-star/CodexHistoryManager/releases/latest")).grid(row=1, column=2, padx=8, pady=8)
+        ctk.CTkLabel(product, text="反馈包只包含诊断信息、日志尾部和操作元数据，不包含聊天正文。", text_color="#667085").grid(row=2, column=0, columnspan=4, sticky="w", padx=8, pady=(0, 8))
+
+        diag = self._card(parent, 3, "诊断中心")
         diag.grid_columnconfigure(0, weight=1)
         diag_actions = ctk.CTkFrame(diag, fg_color="transparent")
         diag_actions.grid(row=1, column=0, columnspan=4, sticky="ew", padx=8, pady=(4, 8))
@@ -704,6 +711,16 @@ class ModernApp(ctk.CTk):
         self.set_status("诊断信息已复制到剪贴板")
         messagebox.showinfo("复制成功", "诊断信息已复制。发送给开发者前请确认其中没有你不想公开的本地路径。")
 
+    def create_support_bundle(self) -> None:
+        self.run(
+            "support_bundle",
+            lambda: self.store.create_support_bundle(self.diagnostics_text or self.format_diagnostics(self.store.diagnostic_snapshot())),
+            "正在生成客户反馈包...",
+        )
+
+    def check_updates(self) -> None:
+        self.run("update_check", check_latest_release, "正在检查最新版本...")
+
     def open_directory(self, path: Path) -> None:
         path.mkdir(parents=True, exist_ok=True)
         webbrowser.open(str(path))
@@ -826,6 +843,27 @@ class ModernApp(ctk.CTk):
                 elif kind == "message":
                     self.set_status(f"操作完成：{payload}")
                     messagebox.showinfo("操作完成", str(payload))
+                elif kind == "support_bundle":
+                    path = Path(str(payload))
+                    self.set_status(f"反馈包已生成：{path.name}")
+                    self.clipboard_clear()
+                    self.clipboard_append(str(path))
+                    messagebox.showinfo("反馈包已生成", f"反馈包已生成，路径已复制到剪贴板：\n\n{path}\n\n发送前请确认其中的本机路径信息可以公开。")
+                    self.open_directory(path.parent)
+                    self.refresh_diagnostics()
+                elif kind == "update_check":
+                    info = dict(payload) if isinstance(payload, dict) else {}
+                    if info.get("error"):
+                        self.set_status("检查更新失败，可手动打开发布页")
+                        if messagebox.askyesno("检查更新失败", f"无法自动检查最新版本：\n{info.get('error')}\n\n是否打开 GitHub Releases 页面手动查看？"):
+                            webbrowser.open(str(info.get("release_url") or "https://github.com/Alexd-star/CodexHistoryManager/releases/latest"))
+                    elif info.get("has_update"):
+                        self.set_status(f"发现新版本：{info.get('latest_tag')}")
+                        if messagebox.askyesno("发现新版本", f"当前版本：{info.get('current_version')}\n最新版本：{info.get('latest_tag')}\n\n是否打开下载页面？"):
+                            webbrowser.open(str(info.get("release_url") or "https://github.com/Alexd-star/CodexHistoryManager/releases/latest"))
+                    else:
+                        self.set_status("当前已是最新版本")
+                        messagebox.showinfo("检查更新", f"当前版本：{info.get('current_version')}\n最新版本：{info.get('latest_tag') or info.get('latest_version')}\n\n当前已是最新版本。")
                 elif kind == "error":
                     self.set_status(f"错误：{payload}")
                     self.refresh_diagnostics()

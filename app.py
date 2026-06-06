@@ -15,6 +15,7 @@ import sys
 import threading
 import time
 import urllib.parse
+import urllib.request
 import zipfile
 from dataclasses import dataclass
 from collections import deque
@@ -33,6 +34,8 @@ else:
     RESOURCE_ROOT = APP_ROOT
 STATIC_ROOT = RESOURCE_ROOT / "static"
 APP_DATA_ENV = "CODEX_HISTORY_MANAGER_HOME"
+RELEASES_API_URL = "https://api.github.com/repos/Alexd-star/CodexHistoryManager/releases/latest"
+RELEASES_PAGE_URL = "https://github.com/Alexd-star/CodexHistoryManager/releases/latest"
 
 
 def default_data_root() -> Path:
@@ -167,6 +170,56 @@ def is_directory_writable(path: Path) -> bool:
         return True
     except Exception:
         return False
+
+
+def parse_version(value: str) -> tuple[int, ...]:
+    text = str(value or "").strip().lstrip("vV")
+    parts: list[int] = []
+    for piece in re.split(r"[.+_-]", text):
+        if piece.isdigit():
+            parts.append(int(piece))
+        else:
+            match = re.match(r"(\d+)", piece)
+            if match:
+                parts.append(int(match.group(1)))
+    return tuple(parts or [0])
+
+
+def check_latest_release(timeout: float = 8.0) -> dict[str, Any]:
+    request = urllib.request.Request(
+        RELEASES_API_URL,
+        headers={
+            "Accept": "application/vnd.github+json",
+            "User-Agent": f"CodexHistoryManager/{APP_VERSION}",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except Exception as exc:
+        return {
+            "current_version": APP_VERSION,
+            "latest_tag": "",
+            "latest_version": "",
+            "has_update": False,
+            "release_url": RELEASES_PAGE_URL,
+            "published_at": "",
+            "name": "",
+            "error": str(exc),
+        }
+    latest_tag = str(payload.get("tag_name") or "")
+    latest_version = latest_tag.lstrip("vV")
+    current = parse_version(APP_VERSION)
+    latest = parse_version(latest_version)
+    return {
+        "current_version": APP_VERSION,
+        "latest_tag": latest_tag,
+        "latest_version": latest_version,
+        "has_update": latest > current,
+        "release_url": payload.get("html_url") or RELEASES_PAGE_URL,
+        "published_at": payload.get("published_at") or "",
+        "name": payload.get("name") or latest_tag,
+    }
 
 
 @dataclass
@@ -655,6 +708,52 @@ class CodexStore:
             "recent_operations": operations[:8],
             "session_error": session_error,
         }
+
+    def create_support_bundle(self, diagnostics_text: str = "") -> Path:
+        tag = utc_now_tag()
+        bundle_dir = self._unique_dir(EXPORT_ROOT / f"{tag}_support_bundle")
+        bundle_dir.mkdir(parents=True, exist_ok=True)
+
+        snapshot = self.diagnostic_snapshot()
+        (bundle_dir / "诊断信息.json").write_text(json.dumps(snapshot, ensure_ascii=False, indent=2), encoding="utf-8")
+        if diagnostics_text:
+            (bundle_dir / "诊断信息.txt").write_text(diagnostics_text, encoding="utf-8")
+        (bundle_dir / "操作记录.json").write_text(json.dumps(self.list_operations(), ensure_ascii=False, indent=2), encoding="utf-8")
+        (bundle_dir / "说明.txt").write_text(
+            "\n".join([
+                "Codex History Manager 客户反馈包",
+                "",
+                "本反馈包用于排查软件运行、路径、权限、导出、备份和会话扫描问题。",
+                "反馈包不包含 Codex 会话正文，不包含 sessions/archived_sessions 下的 JSONL 原始聊天文件。",
+                "其中可能包含本机路径、用户名、版本号、目录状态、最近操作元数据和应用日志尾部。",
+                "发送给他人前，请确认这些路径信息可以公开。",
+            ]),
+            encoding="utf-8",
+        )
+        self._write_log_tail(APP_LOG, bundle_dir / "应用日志尾部.log")
+        self._write_log_tail(OPERATION_LOG, bundle_dir / "操作日志尾部.jsonl")
+
+        zip_path = EXPORT_ROOT / f"{bundle_dir.name}.zip"
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            for file in bundle_dir.rglob("*"):
+                zf.write(file, file.relative_to(bundle_dir.parent))
+        append_operation("support_bundle", {"path": str(zip_path)})
+        return zip_path
+
+    @staticmethod
+    def _write_log_tail(source: Path, target: Path, max_bytes: int = 256 * 1024) -> None:
+        if not source.exists() or not source.is_file():
+            target.write_text("日志文件不存在。", encoding="utf-8")
+            return
+        with source.open("rb") as fh:
+            if source.stat().st_size > max_bytes:
+                fh.seek(-max_bytes, os.SEEK_END)
+                data = fh.read()
+                prefix = b"[log truncated to last bytes]\n"
+                data = prefix + data
+            else:
+                data = fh.read()
+        target.write_text(data.decode("utf-8", errors="replace"), encoding="utf-8")
 
     def export_sessions(
         self,
