@@ -48,6 +48,7 @@ jobs:
             --add-data "static;static" `
             --add-data "assets;assets" `
             --add-data "README.md;." `
+            --add-data "VERSION;." `
             modern_app.py
 
       - name: Upload workflow artifact

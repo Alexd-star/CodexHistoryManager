@@ -32,11 +32,27 @@ else:
     APP_ROOT = Path(__file__).resolve().parent
     RESOURCE_ROOT = APP_ROOT
 STATIC_ROOT = RESOURCE_ROOT / "static"
-EXPORT_ROOT = APP_ROOT / "exports"
-BACKUP_ROOT = APP_ROOT / "backups"
-LOG_ROOT = APP_ROOT / "logs"
+APP_DATA_ENV = "CODEX_HISTORY_MANAGER_HOME"
+
+
+def default_data_root() -> Path:
+    override = os.environ.get(APP_DATA_ENV)
+    if override:
+        return Path(override).expanduser()
+    if sys.platform.startswith("win"):
+        local_app_data = os.environ.get("LOCALAPPDATA")
+        if local_app_data:
+            return Path(local_app_data) / "CodexHistoryManager"
+    return Path.home() / ".codex-history-manager"
+
+
+DATA_ROOT = default_data_root()
+EXPORT_ROOT = DATA_ROOT / "exports"
+BACKUP_ROOT = DATA_ROOT / "backups"
+LOG_ROOT = DATA_ROOT / "logs"
 OPERATION_LOG = LOG_ROOT / "操作日志.jsonl"
 APP_LOG = LOG_ROOT / "应用日志.log"
+CONFIG_PATH = DATA_ROOT / "config.json"
 VERSION_FILE = RESOURCE_ROOT / "VERSION"
 LOCAL_TZ = timezone(timedelta(hours=8))
 
@@ -51,7 +67,7 @@ APP_VERSION = read_version()
 
 
 def setup_logging() -> logging.Logger:
-    LOG_ROOT.mkdir(exist_ok=True)
+    LOG_ROOT.mkdir(parents=True, exist_ok=True)
     logger = logging.getLogger("codex_history_manager")
     logger.setLevel(logging.INFO)
     if not logger.handlers:
@@ -103,7 +119,7 @@ def epoch_to_iso(seconds: int | None) -> str:
 
 
 def append_operation(action: str, detail: dict[str, Any]) -> None:
-    LOG_ROOT.mkdir(exist_ok=True)
+    LOG_ROOT.mkdir(parents=True, exist_ok=True)
     record = {
         "time": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "action": action,
@@ -114,7 +130,43 @@ def append_operation(action: str, detail: dict[str, Any]) -> None:
 
 
 def guess_codex_root() -> Path:
-    return Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
+    configured = load_config().get("codex_root")
+    if configured:
+        path = Path(str(configured)).expanduser()
+        if path.exists():
+            return path
+    return Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex").expanduser()
+
+
+def load_config() -> dict[str, Any]:
+    if not CONFIG_PATH.exists():
+        return {}
+    try:
+        data = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except Exception as exc:
+        LOGGER.warning("load config failed: %s", exc)
+        return {}
+
+
+def save_config(updates: dict[str, Any]) -> dict[str, Any]:
+    DATA_ROOT.mkdir(parents=True, exist_ok=True)
+    config = load_config()
+    config.update(updates)
+    config["updated_at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    CONFIG_PATH.write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8")
+    return config
+
+
+def is_directory_writable(path: Path) -> bool:
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+        probe = path / ".write_probe"
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink(missing_ok=True)
+        return True
+    except Exception:
+        return False
 
 
 @dataclass
@@ -551,6 +603,8 @@ class CodexStore:
                 "version": APP_VERSION,
                 "app_root": str(APP_ROOT),
                 "resource_root": str(RESOURCE_ROOT),
+                "data_root": str(DATA_ROOT),
+                "config_path": str(CONFIG_PATH),
                 "frozen": bool(getattr(sys, "frozen", False)),
                 "python": sys.version.replace("\n", " "),
                 "platform": sys.platform,
@@ -561,6 +615,8 @@ class CodexStore:
                 "session_index": str(self.session_index),
                 "sessions_root": str(self.sessions_root),
                 "archived_root": str(self.archived_root),
+                "data_root": str(DATA_ROOT),
+                "config": str(CONFIG_PATH),
                 "exports": str(EXPORT_ROOT),
                 "backups": str(BACKUP_ROOT),
                 "logs": str(LOG_ROOT),
@@ -573,11 +629,19 @@ class CodexStore:
                 "session_index": self.session_index.exists(),
                 "sessions_root": self.sessions_root.exists(),
                 "archived_root": self.archived_root.exists(),
+                "data_root": DATA_ROOT.exists(),
+                "config": CONFIG_PATH.exists(),
                 "exports": EXPORT_ROOT.exists(),
                 "backups": BACKUP_ROOT.exists(),
                 "logs": LOG_ROOT.exists(),
                 "operation_log": OPERATION_LOG.exists(),
                 "app_log": APP_LOG.exists(),
+            },
+            "writable": {
+                "data_root": is_directory_writable(DATA_ROOT),
+                "exports": is_directory_writable(EXPORT_ROOT),
+                "backups": is_directory_writable(BACKUP_ROOT),
+                "logs": is_directory_writable(LOG_ROOT),
             },
             "counts": {
                 "sessions": len(sessions),
@@ -1190,8 +1254,8 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=8765)
     args = parser.parse_args()
 
-    EXPORT_ROOT.mkdir(exist_ok=True)
-    BACKUP_ROOT.mkdir(exist_ok=True)
+    EXPORT_ROOT.mkdir(parents=True, exist_ok=True)
+    BACKUP_ROOT.mkdir(parents=True, exist_ok=True)
     ApiHandler.store = CodexStore(Path(args.codex_root).resolve())
     server = ThreadingHTTPServer((args.host, args.port), ApiHandler)
     print(f"Codex 本地对话历史管理器已启动：http://{args.host}:{args.port}")

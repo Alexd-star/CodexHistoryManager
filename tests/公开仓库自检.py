@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import shutil
 import sqlite3
 import sys
 import tempfile
@@ -8,9 +10,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+TEST_APP_HOME = Path(tempfile.mkdtemp(prefix="codex-history-manager-home-"))
+os.environ["CODEX_HISTORY_MANAGER_HOME"] = str(TEST_APP_HOME)
 
 import app as app_module  # noqa: E402
-from app import CodexStore  # noqa: E402
+from app import CodexStore, guess_codex_root, save_config  # noqa: E402
 
 
 SESSION_ID = "11111111-1111-4111-8111-111111111111"
@@ -104,39 +108,53 @@ def create_fixture(root: Path) -> CodexStore:
 
 
 def main() -> int:
-    with tempfile.TemporaryDirectory(prefix="codex-history-manager-test-") as temp:
-        base = Path(temp)
-        app_module.EXPORT_ROOT = base / "exports"
-        app_module.BACKUP_ROOT = base / "backups"
-        app_module.LOG_ROOT = base / "logs"
-        app_module.OPERATION_LOG = app_module.LOG_ROOT / "操作日志.jsonl"
+    try:
+        with tempfile.TemporaryDirectory(prefix="codex-history-manager-test-") as temp:
+            base = Path(temp)
+            app_module.DATA_ROOT = base / "appdata"
+            app_module.EXPORT_ROOT = app_module.DATA_ROOT / "exports"
+            app_module.BACKUP_ROOT = app_module.DATA_ROOT / "backups"
+            app_module.LOG_ROOT = app_module.DATA_ROOT / "logs"
+            app_module.OPERATION_LOG = app_module.LOG_ROOT / "操作日志.jsonl"
+            app_module.APP_LOG = app_module.LOG_ROOT / "应用日志.log"
+            app_module.CONFIG_PATH = app_module.DATA_ROOT / "config.json"
 
-        store = create_fixture(base / ".codex")
+            store = create_fixture(base / ".codex")
+            save_config({"codex_root": str(store.codex_root)})
+            assert guess_codex_root() == store.codex_root, "配置中的 Codex 目录未被优先使用"
 
-        sessions = store.list_sessions(include_archived=True)
-        assert len(sessions) == 1, f"会话数量异常：{len(sessions)}"
-        session = sessions[0]
-        assert session.title == "公开仓库自检会话"
+            sessions = store.list_sessions(include_archived=True)
+            assert len(sessions) == 1, f"会话数量异常：{len(sessions)}"
+            session = sessions[0]
+            assert session.title == "公开仓库自检会话"
 
-        messages = store.read_messages(session, limit=10)
-        assert len(messages) == 2, f"消息数量异常：{len(messages)}"
-        assert messages[0]["role"] == "user"
-        assert "导出 Codex 历史记录" in messages[0]["text"]
+            messages = store.read_messages(session, limit=10)
+            assert len(messages) == 2, f"消息数量异常：{len(messages)}"
+            assert messages[0]["role"] == "user"
+            assert "导出 Codex 历史记录" in messages[0]["text"]
 
-        hits = store.search_messages("Markdown", include_archived=True, roles={"assistant"})
-        assert len(hits) == 1, "搜索未命中助手消息"
+            hits = store.search_messages("Markdown", include_archived=True, roles={"assistant"})
+            assert len(hits) == 1, "搜索未命中助手消息"
 
-        exported = store.export_sessions([SESSION_ID], fmt="markdown", split=True, include_images=True)
-        assert exported.exists() and exported.suffix == ".zip", "Markdown 导出失败"
+            exported = store.export_sessions([SESSION_ID], fmt="markdown", split=True, include_images=True)
+            assert exported.exists() and exported.suffix == ".zip", "Markdown 导出失败"
+            assert app_module.EXPORT_ROOT in exported.parents, "导出文件没有写入用户数据目录"
 
-        backup = store.create_backup([SESSION_ID], reason="public-fixture")
-        assert (backup / "manifest.json").exists(), "备份清单不存在"
+            backup = store.create_backup([SESSION_ID], reason="public-fixture")
+            assert (backup / "manifest.json").exists(), "备份清单不存在"
+            assert app_module.BACKUP_ROOT in backup.parents, "备份文件没有写入用户数据目录"
 
-        repaired = store.repair_indexes([SESSION_ID])
-        assert repaired["changed"], "索引修复没有更新任何会话"
+            snapshot = store.diagnostic_snapshot()
+            assert snapshot["exists"]["config"], "诊断信息未识别配置文件"
+            assert snapshot["writable"]["exports"], "导出目录不可写"
 
-        print("[OK] public repository self check passed")
-    return 0
+            repaired = store.repair_indexes([SESSION_ID])
+            assert repaired["changed"], "索引修复没有更新任何会话"
+
+            print("[OK] public repository self check passed")
+        return 0
+    finally:
+        shutil.rmtree(TEST_APP_HOME, ignore_errors=True)
 
 
 if __name__ == "__main__":

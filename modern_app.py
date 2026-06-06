@@ -11,7 +11,19 @@ from tkinter import filedialog, messagebox
 import customtkinter as ctk
 from PIL import Image
 
-from app import APP_ROOT, BACKUP_ROOT, EXPORT_ROOT, LOG_ROOT, ApiHandler, CodexStore, SessionInfo, guess_codex_root, iso_to_local_text, log_exception
+from app import (
+    BACKUP_ROOT,
+    EXPORT_ROOT,
+    LOG_ROOT,
+    RESOURCE_ROOT,
+    ApiHandler,
+    CodexStore,
+    SessionInfo,
+    guess_codex_root,
+    iso_to_local_text,
+    log_exception,
+    save_config,
+)
 
 
 ctk.set_appearance_mode("light")
@@ -114,7 +126,7 @@ class ModernApp(ctk.CTk):
         self.status.grid(row=2, column=0, columnspan=3, sticky="ew", padx=22, pady=(0, 10))
 
     def apply_window_icon(self) -> None:
-        icon_path = APP_ROOT / "assets" / "codex_history_manager.ico"
+        icon_path = RESOURCE_ROOT / "assets" / "codex_history_manager.ico"
         if icon_path.exists():
             try:
                 self.iconbitmap(str(icon_path))
@@ -130,7 +142,7 @@ class ModernApp(ctk.CTk):
         self.geometry(f"{width}x{height}+{x}+{y}")
 
     def load_logo_image(self) -> ctk.CTkImage | None:
-        path = APP_ROOT / "assets" / "codex_history_manager.png"
+        path = RESOURCE_ROOT / "assets" / "codex_history_manager.png"
         if not path.exists():
             return None
         try:
@@ -254,7 +266,7 @@ class ModernApp(ctk.CTk):
         actions.grid(row=3, column=0, sticky="ew", padx=10, pady=12)
         ctk.CTkButton(actions, text="⇩ 导出当前", height=40, command=self.export_current).pack(side="left", padx=(0, 8))
         ctk.CTkButton(actions, text="⇩ 导出选中", height=40, command=self.export_selected).pack(side="left", padx=(0, 8))
-        ctk.CTkButton(actions, text="打开导出目录", height=40, fg_color="#eef2ff", text_color="#174b75", command=lambda: webbrowser.open(str(APP_ROOT / "exports"))).pack(side="left")
+        ctk.CTkButton(actions, text="打开导出目录", height=40, fg_color="#eef2ff", text_color="#174b75", command=lambda: self.open_directory(EXPORT_ROOT)).pack(side="left")
 
     def _build_manage_tab(self, parent: ctk.CTkFrame) -> None:
         parent.grid_columnconfigure(0, weight=1)
@@ -302,11 +314,21 @@ class ModernApp(ctk.CTk):
 
     def refresh_sessions(self) -> None:
         self.set_status("正在扫描会话...")
-        self.sessions = [s.__dict__ for s in self.store.list_sessions(include_archived=self.include_archived.get())]
+        try:
+            self.sessions = [s.__dict__ for s in self.store.list_sessions(include_archived=self.include_archived.get())]
+        except Exception as exc:
+            log_exception("refresh sessions failed", exc)
+            self.sessions = []
+            self.render_empty_preview(f"会话扫描失败：{exc}\n\n请打开“管理 > 诊断中心”复制诊断信息，或点击“选择数据目录”重新指定 Codex 数据目录。")
+            messagebox.showerror("扫描失败", f"{exc}\n\n建议：检查 Codex 数据目录是否存在，或复制诊断信息给开发者。")
         self.prepare_sessions()
         self.session_by_id = {s["id"]: s for s in self.sessions}
         self.apply_filters()
-        self.set_status(f"已载入 {len(self.sessions)} 个会话")
+        if self.sessions:
+            self.set_status(f"已载入 {len(self.sessions)} 个会话")
+        else:
+            self.render_empty_preview(self.first_run_message())
+            self.set_status("未发现会话，请检查 Codex 数据目录")
 
     def prepare_sessions(self) -> None:
         for s in self.sessions:
@@ -351,11 +373,13 @@ class ModernApp(ctk.CTk):
             child.destroy()
         self.update_count_label()
         if not self.filtered:
+            is_first_run = not self.sessions
             empty = ctk.CTkFrame(self.list_frame, fg_color="#ffffff", corner_radius=16, border_width=1, border_color="#e5ebf2")
             empty.grid(row=0, column=0, sticky="ew", padx=10, pady=30)
-            ctk.CTkLabel(empty, text="⌕", width=54, height=54, fg_color="#eef6ff", text_color="#1769aa", corner_radius=18, font=("Microsoft YaHei UI", 24, "bold")).pack(pady=(24, 8))
-            ctk.CTkLabel(empty, text="未找到会话", font=("Microsoft YaHei UI", 16, "bold"), text_color="#102a43").pack(pady=(0, 6))
-            ctk.CTkLabel(empty, text="请调整关键词、状态筛选，或点击“选择数据目录”指向正确的 .codex 目录。", text_color="#667085", wraplength=360).pack(padx=24, pady=(0, 24))
+            ctk.CTkLabel(empty, text="引" if is_first_run else "⌕", width=54, height=54, fg_color="#eef6ff", text_color="#1769aa", corner_radius=18, font=("Microsoft YaHei UI", 24, "bold")).pack(pady=(24, 8))
+            ctk.CTkLabel(empty, text="尚未发现 Codex 会话数据" if is_first_run else "未找到会话", font=("Microsoft YaHei UI", 16, "bold"), text_color="#102a43").pack(pady=(0, 6))
+            message = self.first_run_message() if is_first_run else "请调整关键词、状态筛选，或点击“选择数据目录”指向正确的 .codex 目录。"
+            ctk.CTkLabel(empty, text=message, text_color="#667085", justify="left", wraplength=360).pack(padx=24, pady=(0, 24))
             return
         self.render_list_batch(token, 0)
 
@@ -374,6 +398,15 @@ class ModernApp(ctk.CTk):
 
     def update_count_label(self) -> None:
         self.count_label.configure(text=f"会话列表  {len(self.filtered)} 个 / 已选 {len(self.selected_ids)} 个")
+
+    def first_run_message(self) -> str:
+        return (
+            "当前目录下没有找到可读取的 Codex 历史记录。\n\n"
+            "可按下面顺序检查：\n"
+            "1. 先确认本机已经使用 Codex 产生过至少一次对话；\n"
+            "2. 点击左侧“选择数据目录”，选择包含 state_5.sqlite、session_index.jsonl 或 sessions 文件夹的 .codex 目录；\n"
+            "3. 如果仍然为空，打开“管理 > 诊断中心”，复制诊断信息用于排查。"
+        )
 
     def _session_row(self, idx: int, session: dict) -> None:
         active = session["id"] == self.current_id
@@ -640,6 +673,7 @@ class ModernApp(ctk.CTk):
         if not path:
             return
         self.store = CodexStore(Path(path))
+        save_config({"codex_root": str(self.store.codex_root.resolve())})
         ApiHandler.store = self.store
         self.root_label.configure(text=f"数据目录：{self.store.codex_root}")
         self.current_id = ""
@@ -678,6 +712,7 @@ class ModernApp(ctk.CTk):
         app_info = snapshot.get("app", {})
         paths = snapshot.get("paths", {})
         exists = snapshot.get("exists", {})
+        writable = snapshot.get("writable", {})
         counts = snapshot.get("counts", {})
         lines = [
             "Codex History Manager 诊断信息",
@@ -690,14 +725,17 @@ class ModernApp(ctk.CTk):
             "路径检查",
             "-" * 36,
             f"应用目录：{paths.get('app_root')}",
+            f"资源目录：{app_info.get('resource_root')}",
+            f"用户数据目录：{paths.get('data_root')} [{'可写' if writable.get('data_root') else '不可写'}]",
+            f"配置文件：{paths.get('config')} [{'存在' if exists.get('config') else '缺失'}]",
             f"Codex 数据目录：{paths.get('codex_root')} [{'存在' if exists.get('codex_root') else '缺失'}]",
             f"状态数据库：{paths.get('state_db')} [{'存在' if exists.get('state_db') else '缺失'}]",
             f"会话索引：{paths.get('session_index')} [{'存在' if exists.get('session_index') else '缺失'}]",
             f"会话目录：{paths.get('sessions_root')} [{'存在' if exists.get('sessions_root') else '缺失'}]",
             f"归档目录：{paths.get('archived_root')} [{'存在' if exists.get('archived_root') else '缺失'}]",
-            f"导出目录：{paths.get('exports')}",
-            f"备份目录：{paths.get('backups')}",
-            f"日志目录：{paths.get('logs')}",
+            f"导出目录：{paths.get('exports')} [{'可写' if writable.get('exports') else '不可写'}]",
+            f"备份目录：{paths.get('backups')} [{'可写' if writable.get('backups') else '不可写'}]",
+            f"日志目录：{paths.get('logs')} [{'可写' if writable.get('logs') else '不可写'}]",
             "",
             "数量概览",
             "-" * 36,
