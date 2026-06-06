@@ -295,7 +295,19 @@ class ModernApp(ctk.CTk):
         ctk.CTkButton(product, text="打开发布页", fg_color="#eef2ff", text_color="#174b75", command=lambda: webbrowser.open("https://github.com/Alexd-star/CodexHistoryManager/releases/latest")).grid(row=1, column=2, padx=8, pady=8)
         ctk.CTkLabel(product, text="反馈包只包含诊断信息、日志尾部和操作元数据，不包含聊天正文。", text_color="#667085").grid(row=2, column=0, columnspan=4, sticky="w", padx=8, pady=(0, 8))
 
-        diag = self._card(parent, 3, "诊断中心")
+        storage = self._card(parent, 3, "存储维护")
+        storage.grid_columnconfigure(0, weight=1)
+        storage_actions = ctk.CTkFrame(storage, fg_color="transparent")
+        storage_actions.grid(row=1, column=0, columnspan=4, sticky="ew", padx=8, pady=(4, 8))
+        ctk.CTkButton(storage_actions, text="刷新占用", width=92, command=self.refresh_storage).pack(side="left", padx=(0, 8))
+        ctk.CTkButton(storage_actions, text="清理30天前导出", width=138, fg_color="#f59e0b", command=self.cleanup_old_exports).pack(side="left", padx=(0, 8))
+        ctk.CTkButton(storage_actions, text="打开用户数据目录", width=132, fg_color="#eef2ff", text_color="#174b75", command=lambda: self.open_directory(EXPORT_ROOT.parent)).pack(side="left")
+        self.storage_box = ctk.CTkTextbox(storage, height=110, fg_color="#fbfdff", border_width=1, border_color="#e5ebf2", font=("Microsoft YaHei UI", 12), wrap="word")
+        self.storage_box.grid(row=2, column=0, columnspan=4, sticky="ew", padx=8, pady=(0, 10))
+        self.storage_box.insert("1.0", "点击“刷新占用”查看导出、备份、日志占用。清理功能只删除旧导出和旧反馈包，不删除备份和聊天原文。")
+        self.storage_box.configure(state="disabled")
+
+        diag = self._card(parent, 4, "诊断中心")
         diag.grid_columnconfigure(0, weight=1)
         diag_actions = ctk.CTkFrame(diag, fg_color="transparent")
         diag_actions.grid(row=1, column=0, columnspan=4, sticky="ew", padx=8, pady=(4, 8))
@@ -721,9 +733,39 @@ class ModernApp(ctk.CTk):
     def check_updates(self) -> None:
         self.run("update_check", check_latest_release, "正在检查最新版本...")
 
+    def refresh_storage(self) -> None:
+        self.run("storage", self.store.storage_snapshot, "正在统计用户数据占用...")
+
+    def cleanup_old_exports(self) -> None:
+        if not messagebox.askyesno("确认清理", "将删除 30 天前的导出结果和反馈包，不删除备份、不删除聊天原文。\n\n是否继续？"):
+            return
+        self.run("cleanup_exports", lambda: self.store.cleanup_old_exports(30), "正在清理 30 天前的旧导出...")
+
     def open_directory(self, path: Path) -> None:
         path.mkdir(parents=True, exist_ok=True)
         webbrowser.open(str(path))
+
+    def render_storage(self, snapshot: dict) -> str:
+        dirs = snapshot.get("directories", {})
+        labels = {
+            "data_root": "用户数据总计",
+            "exports": "导出目录",
+            "backups": "备份目录",
+            "logs": "日志目录",
+        }
+        lines = ["用户数据占用", "-" * 36]
+        for key in ["data_root", "exports", "backups", "logs"]:
+            item = dirs.get(key, {})
+            lines.append(f"{labels[key]}：{self.format_bytes(int(item.get('bytes') or 0))}，文件 {item.get('files') or 0} 个")
+            lines.append(f"路径：{item.get('path')}")
+        return "\n".join(lines)
+
+    def update_storage_box(self, text: str) -> None:
+        if hasattr(self, "storage_box"):
+            self.storage_box.configure(state="normal")
+            self.storage_box.delete("1.0", "end")
+            self.storage_box.insert("1.0", text)
+            self.storage_box.configure(state="disabled")
 
     def format_diagnostics(self, snapshot: dict) -> str:
         app_info = snapshot.get("app", {})
@@ -864,6 +906,19 @@ class ModernApp(ctk.CTk):
                     else:
                         self.set_status("当前已是最新版本")
                         messagebox.showinfo("检查更新", f"当前版本：{info.get('current_version')}\n最新版本：{info.get('latest_tag') or info.get('latest_version')}\n\n当前已是最新版本。")
+                elif kind == "storage":
+                    self.update_storage_box(self.render_storage(dict(payload) if isinstance(payload, dict) else {}))
+                    self.set_status("用户数据占用已刷新")
+                elif kind == "cleanup_exports":
+                    result = dict(payload) if isinstance(payload, dict) else {}
+                    self.set_status(f"清理完成：删除 {result.get('removed_count', 0)} 项")
+                    self.update_storage_box(
+                        "清理完成\n"
+                        f"删除项目：{result.get('removed_count', 0)} 项\n"
+                        f"释放空间：{self.format_bytes(int(result.get('removed_bytes') or 0))}\n"
+                        f"跳过项目：{len(result.get('skipped') or [])} 项"
+                    )
+                    self.refresh_diagnostics()
                 elif kind == "error":
                     self.set_status(f"错误：{payload}")
                     self.refresh_diagnostics()

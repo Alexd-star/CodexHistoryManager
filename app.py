@@ -222,6 +222,29 @@ def check_latest_release(timeout: float = 8.0) -> dict[str, Any]:
     }
 
 
+def path_size(path: Path) -> int:
+    if not path.exists():
+        return 0
+    if path.is_file():
+        return path.stat().st_size
+    total = 0
+    for item in path.rglob("*"):
+        if item.is_file():
+            try:
+                total += item.stat().st_size
+            except OSError:
+                continue
+    return total
+
+
+def path_file_count(path: Path) -> int:
+    if not path.exists():
+        return 0
+    if path.is_file():
+        return 1
+    return sum(1 for item in path.rglob("*") if item.is_file())
+
+
 @dataclass
 class SessionInfo:
     id: str
@@ -754,6 +777,67 @@ class CodexStore:
             else:
                 data = fh.read()
         target.write_text(data.decode("utf-8", errors="replace"), encoding="utf-8")
+
+    def storage_snapshot(self) -> dict[str, Any]:
+        roots = {
+            "exports": EXPORT_ROOT,
+            "backups": BACKUP_ROOT,
+            "logs": LOG_ROOT,
+        }
+        directories = {}
+        for name, path in roots.items():
+            directories[name] = {
+                "path": str(path),
+                "exists": path.exists(),
+                "bytes": path_size(path),
+                "files": path_file_count(path),
+            }
+        directories["data_root"] = {
+            "path": str(DATA_ROOT),
+            "exists": DATA_ROOT.exists(),
+            "bytes": path_size(DATA_ROOT),
+            "files": path_file_count(DATA_ROOT),
+        }
+        return {
+            "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            "directories": directories,
+        }
+
+    def cleanup_old_exports(self, older_than_days: int = 30) -> dict[str, Any]:
+        if older_than_days < 1:
+            raise ValueError("清理天数必须大于等于 1")
+        cutoff = time.time() - older_than_days * 24 * 60 * 60
+        removed: list[dict[str, Any]] = []
+        skipped: list[str] = []
+        if EXPORT_ROOT.exists():
+            for path in EXPORT_ROOT.iterdir():
+                if path.name.startswith("."):
+                    continue
+                try:
+                    mtime = path.stat().st_mtime
+                except OSError:
+                    skipped.append(str(path))
+                    continue
+                if mtime > cutoff:
+                    continue
+                size = path_size(path)
+                try:
+                    if path.is_dir():
+                        shutil.rmtree(path)
+                    else:
+                        path.unlink()
+                    removed.append({"path": str(path), "bytes": size})
+                except OSError:
+                    skipped.append(str(path))
+        result = {
+            "older_than_days": older_than_days,
+            "removed_count": len(removed),
+            "removed_bytes": sum(item["bytes"] for item in removed),
+            "removed": removed,
+            "skipped": skipped,
+        }
+        append_operation("清理旧导出", result)
+        return result
 
     def export_sessions(
         self,

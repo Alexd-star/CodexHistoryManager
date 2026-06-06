@@ -6,6 +6,7 @@ import shutil
 import sqlite3
 import sys
 import tempfile
+import time
 import zipfile
 from pathlib import Path
 
@@ -162,6 +163,19 @@ def main() -> int:
             assert repaired["changed"], "索引修复没有更新任何会话"
 
             assert parse_version("v0.1.10") > parse_version("0.1.2"), "版本比较异常"
+
+            old_export = app_module.EXPORT_ROOT / "old_export.txt"
+            new_export = app_module.EXPORT_ROOT / "new_export.txt"
+            old_export.write_text("old", encoding="utf-8")
+            new_export.write_text("new", encoding="utf-8")
+            old_time = time.time() - 40 * 24 * 60 * 60
+            os.utime(old_export, (old_time, old_time))
+            cleanup = store.cleanup_old_exports(30)
+            assert cleanup["removed_count"] >= 1, "旧导出清理没有删除任何项目"
+            assert not old_export.exists(), "旧导出文件未被删除"
+            assert new_export.exists(), "新导出文件不应被删除"
+            storage = store.storage_snapshot()
+            assert storage["directories"]["exports"]["bytes"] >= 0, "存储统计异常"
 
             print("[OK] public repository self check passed")
         return 0
