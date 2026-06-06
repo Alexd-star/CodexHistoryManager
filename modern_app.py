@@ -11,7 +11,7 @@ from tkinter import filedialog, messagebox
 import customtkinter as ctk
 from PIL import Image
 
-from app import APP_ROOT, ApiHandler, CodexStore, SessionInfo, guess_codex_root, iso_to_local_text
+from app import APP_ROOT, BACKUP_ROOT, EXPORT_ROOT, LOG_ROOT, ApiHandler, CodexStore, SessionInfo, guess_codex_root, iso_to_local_text, log_exception
 
 
 ctk.set_appearance_mode("light")
@@ -275,6 +275,20 @@ class ModernApp(ctk.CTk):
         ctk.CTkButton(web, text="打开浏览器版", command=self.open_web).grid(row=0, column=2, padx=8)
         ctk.CTkButton(web, text="停止", fg_color="#ef4444", command=self.stop_web).grid(row=0, column=3, padx=8)
         ctk.CTkLabel(web, text="Web 服务只绑定 127.0.0.1，适合临时用浏览器查看。", text_color="#667085").grid(row=1, column=0, columnspan=4, sticky="w", padx=8, pady=(0, 8))
+
+        diag = self._card(parent, 2, "诊断中心")
+        diag.grid_columnconfigure(0, weight=1)
+        diag_actions = ctk.CTkFrame(diag, fg_color="transparent")
+        diag_actions.grid(row=1, column=0, columnspan=4, sticky="ew", padx=8, pady=(4, 8))
+        ctk.CTkButton(diag_actions, text="刷新诊断", width=92, command=self.refresh_diagnostics).pack(side="left", padx=(0, 8))
+        ctk.CTkButton(diag_actions, text="复制诊断", width=92, command=self.copy_diagnostics).pack(side="left", padx=(0, 8))
+        ctk.CTkButton(diag_actions, text="导出目录", width=86, fg_color="#eef2ff", text_color="#174b75", command=lambda: self.open_directory(EXPORT_ROOT)).pack(side="left", padx=(0, 8))
+        ctk.CTkButton(diag_actions, text="备份目录", width=86, fg_color="#eef2ff", text_color="#174b75", command=lambda: self.open_directory(BACKUP_ROOT)).pack(side="left", padx=(0, 8))
+        ctk.CTkButton(diag_actions, text="日志目录", width=86, fg_color="#eef2ff", text_color="#174b75", command=lambda: self.open_directory(LOG_ROOT)).pack(side="left")
+        self.diagnostics_box = ctk.CTkTextbox(diag, height=210, fg_color="#fbfdff", border_width=1, border_color="#e5ebf2", font=("Microsoft YaHei UI", 12), wrap="word")
+        self.diagnostics_box.grid(row=2, column=0, columnspan=4, sticky="ew", padx=8, pady=(0, 10))
+        self.diagnostics_text = ""
+        self.refresh_diagnostics()
 
     def _card(self, parent: ctk.CTkFrame, row: int, title: str) -> ctk.CTkFrame:
         frame = ctk.CTkFrame(parent, fg_color="#ffffff", border_width=1, border_color="#e5ebf2", corner_radius=16)
@@ -631,6 +645,88 @@ class ModernApp(ctk.CTk):
         self.current_id = ""
         self.selected_ids.clear()
         self.refresh_sessions()
+        self.refresh_diagnostics()
+
+    def refresh_diagnostics(self) -> None:
+        try:
+            snapshot = self.store.diagnostic_snapshot()
+            self.diagnostics_text = self.format_diagnostics(snapshot)
+            if hasattr(self, "diagnostics_box"):
+                self.diagnostics_box.configure(state="normal")
+                self.diagnostics_box.delete("1.0", "end")
+                self.diagnostics_box.insert("1.0", self.diagnostics_text)
+                self.diagnostics_box.configure(state="disabled")
+            self.set_status("诊断信息已刷新")
+        except Exception as exc:
+            log_exception("refresh diagnostics failed", exc)
+            self.set_status(f"诊断刷新失败：{exc}")
+            messagebox.showerror("诊断刷新失败", f"{exc}\n\n建议：打开日志目录查看 应用日志.log。")
+
+    def copy_diagnostics(self) -> None:
+        if not self.diagnostics_text:
+            self.refresh_diagnostics()
+        self.clipboard_clear()
+        self.clipboard_append(self.diagnostics_text)
+        self.set_status("诊断信息已复制到剪贴板")
+        messagebox.showinfo("复制成功", "诊断信息已复制。发送给开发者前请确认其中没有你不想公开的本地路径。")
+
+    def open_directory(self, path: Path) -> None:
+        path.mkdir(parents=True, exist_ok=True)
+        webbrowser.open(str(path))
+
+    def format_diagnostics(self, snapshot: dict) -> str:
+        app_info = snapshot.get("app", {})
+        paths = snapshot.get("paths", {})
+        exists = snapshot.get("exists", {})
+        counts = snapshot.get("counts", {})
+        lines = [
+            "Codex History Manager 诊断信息",
+            "=" * 36,
+            f"版本：{app_info.get('version')}",
+            f"运行模式：{'EXE' if app_info.get('frozen') else '源码'}",
+            f"Python：{app_info.get('python')}",
+            f"平台：{app_info.get('platform')}",
+            "",
+            "路径检查",
+            "-" * 36,
+            f"应用目录：{paths.get('app_root')}",
+            f"Codex 数据目录：{paths.get('codex_root')} [{'存在' if exists.get('codex_root') else '缺失'}]",
+            f"状态数据库：{paths.get('state_db')} [{'存在' if exists.get('state_db') else '缺失'}]",
+            f"会话索引：{paths.get('session_index')} [{'存在' if exists.get('session_index') else '缺失'}]",
+            f"会话目录：{paths.get('sessions_root')} [{'存在' if exists.get('sessions_root') else '缺失'}]",
+            f"归档目录：{paths.get('archived_root')} [{'存在' if exists.get('archived_root') else '缺失'}]",
+            f"导出目录：{paths.get('exports')}",
+            f"备份目录：{paths.get('backups')}",
+            f"日志目录：{paths.get('logs')}",
+            "",
+            "数量概览",
+            "-" * 36,
+            f"会话总数：{counts.get('sessions')}",
+            f"可读取会话文件：{counts.get('existing_session_files')}",
+            f"归档会话：{counts.get('archived_sessions')}",
+            f"缺失会话文件：{counts.get('missing_session_files')}",
+            f"备份记录：{counts.get('backups')}",
+            f"操作记录：{counts.get('operations')}",
+        ]
+        if snapshot.get("session_error"):
+            lines.extend(["", "会话扫描错误", "-" * 36, str(snapshot["session_error"])])
+
+        backups = snapshot.get("recent_backups") or []
+        lines.extend(["", "最近备份", "-" * 36])
+        if backups:
+            for item in backups:
+                lines.append(f"- {item.get('created_at')} | {item.get('reason')} | {item.get('name')}")
+        else:
+            lines.append("- 暂无备份记录")
+
+        operations = snapshot.get("recent_operations") or []
+        lines.extend(["", "最近操作", "-" * 36])
+        if operations:
+            for item in operations:
+                lines.append(f"- {item.get('time')} | {item.get('action')} | {item.get('detail')}")
+        else:
+            lines.append("- 暂无操作记录")
+        return "\n".join(lines)
 
     def toggle_select(self, sid: str) -> None:
         if sid in self.selected_ids:
@@ -659,6 +755,7 @@ class ModernApp(ctk.CTk):
             try:
                 self.queue.put((kind, func()))
             except Exception as exc:
+                log_exception(f"worker failed: {kind}", exc)
                 self.queue.put(("error", exc))
         threading.Thread(target=target, daemon=True).start()
 
@@ -693,7 +790,8 @@ class ModernApp(ctk.CTk):
                     messagebox.showinfo("操作完成", str(payload))
                 elif kind == "error":
                     self.set_status(f"错误：{payload}")
-                    messagebox.showerror("错误", str(payload))
+                    self.refresh_diagnostics()
+                    messagebox.showerror("操作失败", f"{payload}\n\n建议：打开“管理 > 诊断中心”，复制诊断信息，或查看日志目录中的 应用日志.log。")
         except queue.Empty:
             pass
         if not self.closing:
@@ -722,7 +820,8 @@ class ModernApp(ctk.CTk):
             pass
 
     def set_status(self, text: str) -> None:
-        self.status.configure(text=text)
+        if hasattr(self, "status"):
+            self.status.configure(text=text)
 
     def clear_preview_widgets(self) -> None:
         for child in self.preview.winfo_children():

@@ -6,6 +6,7 @@ import csv
 import hashlib
 import html
 import json
+import logging
 import os
 import re
 import shutil
@@ -35,7 +36,36 @@ EXPORT_ROOT = APP_ROOT / "exports"
 BACKUP_ROOT = APP_ROOT / "backups"
 LOG_ROOT = APP_ROOT / "logs"
 OPERATION_LOG = LOG_ROOT / "操作日志.jsonl"
+APP_LOG = LOG_ROOT / "应用日志.log"
+VERSION_FILE = RESOURCE_ROOT / "VERSION"
 LOCAL_TZ = timezone(timedelta(hours=8))
+
+
+def read_version() -> str:
+    if VERSION_FILE.exists():
+        return VERSION_FILE.read_text(encoding="utf-8").strip() or "0.0.0"
+    return "0.0.0"
+
+
+APP_VERSION = read_version()
+
+
+def setup_logging() -> logging.Logger:
+    LOG_ROOT.mkdir(exist_ok=True)
+    logger = logging.getLogger("codex_history_manager")
+    logger.setLevel(logging.INFO)
+    if not logger.handlers:
+        handler = logging.FileHandler(APP_LOG, encoding="utf-8")
+        handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+        logger.addHandler(handler)
+    return logger
+
+
+LOGGER = setup_logging()
+
+
+def log_exception(context: str, exc: BaseException) -> None:
+    LOGGER.exception("%s: %s", context, exc)
 
 
 def utc_now_tag() -> str:
@@ -503,6 +533,64 @@ class CodexStore:
                 except json.JSONDecodeError:
                     continue
         return list(records)[::-1]
+
+    def diagnostic_snapshot(self) -> dict[str, Any]:
+        sessions: list[SessionInfo] = []
+        session_error = ""
+        try:
+            sessions = self.list_sessions(include_archived=True)
+        except Exception as exc:
+            session_error = str(exc)
+            log_exception("diagnostic list_sessions failed", exc)
+
+        existing_sessions = [s for s in sessions if s.file_exists]
+        backups = self.list_backups()
+        operations = self.list_operations()
+        return {
+            "app": {
+                "version": APP_VERSION,
+                "app_root": str(APP_ROOT),
+                "resource_root": str(RESOURCE_ROOT),
+                "frozen": bool(getattr(sys, "frozen", False)),
+                "python": sys.version.replace("\n", " "),
+                "platform": sys.platform,
+            },
+            "paths": {
+                "codex_root": str(self.codex_root),
+                "state_db": str(self.state_db),
+                "session_index": str(self.session_index),
+                "sessions_root": str(self.sessions_root),
+                "archived_root": str(self.archived_root),
+                "exports": str(EXPORT_ROOT),
+                "backups": str(BACKUP_ROOT),
+                "logs": str(LOG_ROOT),
+                "operation_log": str(OPERATION_LOG),
+                "app_log": str(APP_LOG),
+            },
+            "exists": {
+                "codex_root": self.codex_root.exists(),
+                "state_db": self.state_db.exists(),
+                "session_index": self.session_index.exists(),
+                "sessions_root": self.sessions_root.exists(),
+                "archived_root": self.archived_root.exists(),
+                "exports": EXPORT_ROOT.exists(),
+                "backups": BACKUP_ROOT.exists(),
+                "logs": LOG_ROOT.exists(),
+                "operation_log": OPERATION_LOG.exists(),
+                "app_log": APP_LOG.exists(),
+            },
+            "counts": {
+                "sessions": len(sessions),
+                "existing_session_files": len(existing_sessions),
+                "archived_sessions": sum(1 for s in sessions if s.archived),
+                "missing_session_files": sum(1 for s in sessions if not s.file_exists),
+                "backups": len(backups),
+                "operations": len(operations),
+            },
+            "recent_backups": backups[:5],
+            "recent_operations": operations[:8],
+            "session_error": session_error,
+        }
 
     def export_sessions(
         self,
