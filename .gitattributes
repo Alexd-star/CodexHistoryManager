@@ -18,3 +18,5 @@
 *.ico binary
 *.zip binary
 *.exe binary
+*.docx binary
+*.pdf binary
