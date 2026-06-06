@@ -9,7 +9,7 @@
 
 它的目标不是替代 Codex，而是补上“本地历史可管理、可恢复、可导出、可备份”的工具层：当侧边栏记录缺失、排序异常、标题不准确，或者需要把某段历史整理成 Markdown / HTML / JSON 时，可以用这个工具快速处理。
 
-当前版本：`0.1.1`
+当前版本：`0.1.2`
 
 ## 核心能力
 
@@ -88,7 +88,7 @@ CodexHistoryManager/
 
 ## 快速开始
 
-### 方式一：下载发布版 EXE
+### 方式一：下载发布版安装包
 
 进入 GitHub Releases 页面下载：
 
@@ -96,7 +96,9 @@ CodexHistoryManager/
 https://github.com/Alexd-star/CodexHistoryManager/releases
 ```
 
-下载 `CodexHistoryManager.exe` 后双击运行。
+推荐普通用户下载 `CodexHistoryManager-Setup-v版本号.exe`。安装包会安装到当前用户目录，创建开始菜单快捷方式，并支持从 Windows 设置中卸载。
+
+也可以下载 `CodexHistoryManager.exe` 作为绿色版单文件程序，双击即可运行。
 
 ### 方式二：从源码运行
 
@@ -142,7 +144,27 @@ powershell -ExecutionPolicy Bypass -File .\打包桌面版EXE.ps1
 dist\CodexHistoryManager.exe
 ```
 
-#### 5. 启动备用 Web 版
+#### 5. 打包安装包
+
+安装包使用 Inno Setup 6 生成。如果本机没有安装 Inno Setup，可以先运行：
+
+```powershell
+winget install --id JRSoftware.InnoSetup -e --silent
+```
+
+然后执行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\打包安装包.ps1
+```
+
+生成文件：
+
+```text
+dist\CodexHistoryManager-Setup-v版本号.exe
+```
+
+#### 6. 启动备用 Web 版
 
 桌面版中可以手动启动 Web 服务，也可以直接运行：
 
