@@ -1,0 +1,62 @@
+name: Release Windows EXE
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    name: Build and publish release
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Run public repository self check
+        run: python .\tests\公开仓库自检.py
+
+      - name: Build executable
+        shell: powershell
+        run: |
+          python -m PyInstaller `
+            --noconfirm `
+            --clean `
+            --onefile `
+            --windowed `
+            --name "CodexHistoryManager" `
+            --icon "assets\codex_history_manager.ico" `
+            --collect-all customtkinter `
+            --collect-all darkdetect `
+            --add-data "static;static" `
+            --add-data "assets;assets" `
+            --add-data "README.md;." `
+            modern_app.py
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CodexHistoryManager-Windows
+          path: dist/CodexHistoryManager.exe
+
+      - name: Create GitHub release
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" `
+            "dist\CodexHistoryManager.exe" `
+            --title "${{ github.ref_name }}" `
+            --generate-notes

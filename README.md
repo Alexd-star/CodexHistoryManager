@@ -9,6 +9,8 @@
 
 它的目标不是替代 Codex，而是补上“本地历史可管理、可恢复、可导出、可备份”的工具层：当侧边栏记录缺失、排序异常、标题不准确，或者需要把某段历史整理成 Markdown / HTML / JSON 时，可以用这个工具快速处理。
 
+当前版本：`0.1.0`
+
 ## 核心能力
 
 - **会话列表管理**：读取 `state_5.sqlite`、`session_index.jsonl`、`sessions` 与 `archived_sessions`。
@@ -80,22 +82,34 @@ dist/        # EXE 输出目录
 
 ## 快速开始
 
-### 1. 克隆项目
+### 方式一：下载发布版 EXE
+
+进入 GitHub Releases 页面下载：
+
+```text
+https://github.com/Alexd-star/CodexHistoryManager/releases
+```
+
+下载 `CodexHistoryManager.exe` 后双击运行。
+
+### 方式二：从源码运行
+
+#### 1. 克隆项目
 
 ```powershell
 git clone https://github.com/Alexd-star/CodexHistoryManager.git
 cd CodexHistoryManager
 ```
 
-### 2. 安装依赖
+#### 2. 安装依赖
 
 建议使用 Python 3.11 或更高版本。
 
 ```powershell
-python -m pip install customtkinter pillow pyinstaller
+python -m pip install -r requirements.txt
 ```
 
-### 3. 启动桌面版
+#### 3. 启动桌面版
 
 ```powershell
 python .\modern_app.py
@@ -109,7 +123,7 @@ C:\Users\<用户名>\.codex
 
 也可以在界面中点击“选择数据目录”，手动选择其他 Codex 数据目录。
 
-### 4. 打包 EXE
+#### 4. 打包 EXE
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\打包桌面版EXE.ps1
@@ -121,7 +135,7 @@ powershell -ExecutionPolicy Bypass -File .\打包桌面版EXE.ps1
 dist\CodexHistoryManager.exe
 ```
 
-### 5. 启动备用 Web 版
+#### 5. 启动备用 Web 版
 
 桌面版中可以手动启动 Web 服务，也可以直接运行：
 
@@ -198,6 +212,12 @@ Web 服务只绑定 `127.0.0.1`，默认仅本机可访问。
 
 ## 测试
 
+公开仓库自检，不依赖真实 `.codex`：
+
+```powershell
+python .\tests\公开仓库自检.py
+```
+
 只读冒烟测试：
 
 ```powershell
@@ -212,6 +232,22 @@ python .\tests\冒烟测试.py --write
 
 写操作测试会自动备份，并在测试内恢复状态。
 
+## 自动化验证与发布
+
+本仓库包含两个 GitHub Actions 工作流：
+
+- `CI`：在 push 和 pull request 时运行 `tests/公开仓库自检.py`。
+- `Release Windows EXE`：推送 `v*` tag 时自动构建 Windows EXE，并上传到 GitHub Releases。
+
+发布新版本的典型流程：
+
+```powershell
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+工作流完成后，GitHub Releases 中会出现 `CodexHistoryManager.exe`。
+
 ## 设计原则
 
 - **本地优先**：所有核心功能围绕本机 `.codex` 数据工作。
@@ -223,4 +259,3 @@ python .\tests\冒烟测试.py --write
 ## 许可证
 
 本项目采用 MIT License。详见 [LICENSE](LICENSE)。
-
