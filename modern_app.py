@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import queue
 import re
+import sys
 import threading
 import webbrowser
 from http.server import ThreadingHTTPServer
@@ -12,7 +13,10 @@ import customtkinter as ctk
 from PIL import Image
 
 from app import (
+    APP_ROOT,
+    APP_VERSION,
     BACKUP_ROOT,
+    DATA_ROOT,
     EXPORT_ROOT,
     LOG_ROOT,
     RESOURCE_ROOT,
@@ -295,7 +299,14 @@ class ModernApp(ctk.CTk):
         ctk.CTkButton(product, text="打开发布页", fg_color="#eef2ff", text_color="#174b75", command=lambda: webbrowser.open("https://github.com/Alexd-star/CodexHistoryManager/releases/latest")).grid(row=1, column=2, padx=8, pady=8)
         ctk.CTkLabel(product, text="反馈包只包含诊断信息、日志尾部和操作元数据，不包含聊天正文。", text_color="#667085").grid(row=2, column=0, columnspan=4, sticky="w", padx=8, pady=(0, 8))
 
-        storage = self._card(parent, 3, "存储维护")
+        help_card = self._card(parent, 3, "帮助与关于")
+        ctk.CTkButton(help_card, text="打开 README", command=lambda: self.open_resource_or_url("README.md", "https://github.com/Alexd-star/CodexHistoryManager#readme")).grid(row=1, column=0, padx=8, pady=8)
+        ctk.CTkButton(help_card, text="打开文档目录", command=lambda: self.open_resource_or_url("docs", "https://github.com/Alexd-star/CodexHistoryManager/tree/main/docs")).grid(row=1, column=1, padx=8, pady=8)
+        ctk.CTkButton(help_card, text="许可证", command=lambda: self.open_resource_or_url("LICENSE", "https://github.com/Alexd-star/CodexHistoryManager/blob/main/LICENSE")).grid(row=1, column=2, padx=8, pady=8)
+        ctk.CTkButton(help_card, text="复制版本信息", fg_color="#eef2ff", text_color="#174b75", command=self.copy_about_info).grid(row=1, column=3, padx=8, pady=8)
+        ctk.CTkLabel(help_card, text=f"版本 {APP_VERSION} | 用户数据目录：{DATA_ROOT}", text_color="#667085", wraplength=760, justify="left").grid(row=2, column=0, columnspan=4, sticky="w", padx=8, pady=(0, 8))
+
+        storage = self._card(parent, 4, "存储维护")
         storage.grid_columnconfigure(0, weight=1)
         storage_actions = ctk.CTkFrame(storage, fg_color="transparent")
         storage_actions.grid(row=1, column=0, columnspan=4, sticky="ew", padx=8, pady=(4, 8))
@@ -307,7 +318,7 @@ class ModernApp(ctk.CTk):
         self.storage_box.insert("1.0", "点击“刷新占用”查看导出、备份、日志占用。清理功能只删除旧导出和旧反馈包，不删除备份和聊天原文。")
         self.storage_box.configure(state="disabled")
 
-        diag = self._card(parent, 4, "诊断中心")
+        diag = self._card(parent, 5, "诊断中心")
         diag.grid_columnconfigure(0, weight=1)
         diag_actions = ctk.CTkFrame(diag, fg_color="transparent")
         diag_actions.grid(row=1, column=0, columnspan=4, sticky="ew", padx=8, pady=(4, 8))
@@ -744,6 +755,30 @@ class ModernApp(ctk.CTk):
     def open_directory(self, path: Path) -> None:
         path.mkdir(parents=True, exist_ok=True)
         webbrowser.open(str(path))
+
+    def open_resource_or_url(self, relative_path: str, fallback_url: str) -> None:
+        path = RESOURCE_ROOT / relative_path
+        if path.exists():
+            webbrowser.open(str(path))
+        else:
+            webbrowser.open(fallback_url)
+
+    def copy_about_info(self) -> None:
+        text = "\n".join([
+            "Codex History Manager",
+            f"版本：{APP_VERSION}",
+            f"运行模式：{'EXE' if getattr(sys, 'frozen', False) else '源码'}",
+            f"应用目录：{APP_ROOT}",
+            f"资源目录：{RESOURCE_ROOT}",
+            f"用户数据目录：{DATA_ROOT}",
+            f"Codex 数据目录：{self.store.codex_root}",
+            "项目主页：https://github.com/Alexd-star/CodexHistoryManager",
+            "发布页：https://github.com/Alexd-star/CodexHistoryManager/releases/latest",
+        ])
+        self.clipboard_clear()
+        self.clipboard_append(text)
+        self.set_status("版本信息已复制到剪贴板")
+        messagebox.showinfo("复制成功", "版本、路径和项目链接已复制。")
 
     def render_storage(self, snapshot: dict) -> str:
         dirs = snapshot.get("directories", {})

@@ -27,6 +27,7 @@ if (-not (Test-Path $Python311)) {
     --collect-all darkdetect `
     --add-data "static;static" `
     --add-data "assets;assets" `
+    --add-data "docs;docs" `
     --add-data "README.md;." `
     --add-data "VERSION;." `
     modern_app.py

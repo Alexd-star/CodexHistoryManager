@@ -24,11 +24,18 @@ if ($Install.ExitCode -ne 0) {
 
 $InstalledExe = Join-Path $Target "CodexHistoryManager.exe"
 $Uninstaller = Join-Path $Target "unins000.exe"
+$InstalledDocs = Join-Path $Target "docs"
 if (-not (Test-Path $InstalledExe)) {
     throw "Installed EXE missing: $InstalledExe"
 }
 if (-not (Test-Path $Uninstaller)) {
     throw "Uninstaller missing: $Uninstaller"
+}
+if (-not (Test-Path $InstalledDocs)) {
+    throw "Installed docs directory missing: $InstalledDocs"
+}
+if (-not (Get-ChildItem -Path $InstalledDocs -Filter "*.md" -ErrorAction SilentlyContinue)) {
+    throw "Installed docs directory does not contain markdown documents: $InstalledDocs"
 }
 
 $Uninstall = Start-Process `
