@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+.venv/
+venv/
+env/
+
+# PyInstaller / build outputs
+build/
+dist/
+*.spec
+
+# Local generated data
+exports/
+backups/
+logs/
+server.err.log
+server.out.log
+
+# Private screenshots and local review artifacts
+docs/界面截图/
+.playwright-cli/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Secrets / environment
+.env
+.env.*
+*.key
+*.pem
+*.p12
+*.pfx

@@ -1,0 +1,884 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:,">
+  <title>Codex 本地对话历史管理器</title>
+  <style>
+    :root {
+      --bg: #f4f6f8;
+      --panel: #ffffff;
+      --line: #d7dde5;
+      --text: #17202a;
+      --muted: #667085;
+      --blue: #1769aa;
+      --blue-2: #e7f0fa;
+      --green: #16794c;
+      --red: #b42318;
+      --amber: #b54708;
+      --shadow: 0 8px 28px rgba(22, 34, 51, 0.10);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Microsoft YaHei", "Segoe UI", Arial, sans-serif;
+      color: var(--text);
+      background: var(--bg);
+    }
+    header {
+      height: 58px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 18px;
+      background: #12395f;
+      color: white;
+      border-bottom: 1px solid #0b2b4a;
+    }
+    header h1 {
+      margin: 0;
+      font-size: 17px;
+      font-weight: 600;
+      letter-spacing: 0;
+    }
+    header .meta { font-size: 12px; opacity: .86; }
+    .app {
+      display: grid;
+      grid-template-columns: 390px 1fr;
+      height: calc(100vh - 58px);
+      min-height: 620px;
+    }
+    aside {
+      border-right: 1px solid var(--line);
+      background: #eef2f6;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+    }
+    .toolbar {
+      padding: 12px;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px;
+      border-bottom: 1px solid var(--line);
+      background: #f7f9fb;
+    }
+    input, select, button {
+      font: inherit;
+    }
+    input[type="search"] {
+      width: 100%;
+      height: 34px;
+      border: 1px solid #b9c3cf;
+      border-radius: 4px;
+      padding: 0 10px;
+      background: white;
+    }
+    button, .button {
+      height: 32px;
+      border: 1px solid #aeb8c4;
+      background: #fff;
+      color: #1d2939;
+      border-radius: 4px;
+      padding: 0 11px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    button:hover { background: #f2f6fb; border-color: #7fa8cf; }
+    button.primary { background: var(--blue); color: white; border-color: var(--blue); }
+    button.danger { color: var(--red); border-color: #f0b8b3; }
+    button.good { color: var(--green); border-color: #9fd0ba; }
+    button:disabled { opacity: .45; cursor: not-allowed; }
+    .filter-row {
+      grid-column: 1 / -1;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 12px;
+      color: var(--muted);
+      flex-wrap: wrap;
+    }
+    .filter-row select {
+      height: 28px;
+      border: 1px solid #b9c3cf;
+      border-radius: 4px;
+      background: white;
+      color: var(--text);
+      max-width: 110px;
+    }
+    .batchbar {
+      grid-column: 1 / -1;
+      display: flex;
+      gap: 7px;
+      flex-wrap: wrap;
+      align-items: center;
+      border-top: 1px solid #e1e7ee;
+      padding-top: 8px;
+    }
+    .batchbar button { height: 28px; font-size: 12px; padding: 0 8px; }
+    .mini-check {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .session-list {
+      overflow: auto;
+      padding: 8px;
+    }
+    .session {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 10px;
+      margin-bottom: 8px;
+      cursor: pointer;
+    }
+    .session:hover { border-color: #9bb8d2; }
+    .session.active {
+      border-color: var(--blue);
+      box-shadow: inset 3px 0 0 var(--blue);
+      background: #fbfdff;
+    }
+    .session-row {
+      display: grid;
+      grid-template-columns: 22px 1fr;
+      gap: 5px;
+      align-items: start;
+    }
+    .session input[type="checkbox"] {
+      margin-top: 2px;
+    }
+    .session-title {
+      font-size: 13px;
+      font-weight: 600;
+      line-height: 1.35;
+      margin-bottom: 7px;
+      word-break: break-word;
+      display: -webkit-box;
+      -webkit-line-clamp: 3;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .session-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      font-size: 11px;
+      color: var(--muted);
+    }
+    .pill {
+      border: 1px solid #d1d9e2;
+      background: #f8fafc;
+      border-radius: 999px;
+      padding: 2px 7px;
+    }
+    .pill.archived { color: var(--amber); border-color: #f2c69e; background: #fff7ed; }
+    .hit-list {
+      margin-top: 7px;
+      font-size: 11px;
+      color: #475467;
+      line-height: 1.45;
+      border-top: 1px solid #eef2f6;
+      padding-top: 6px;
+    }
+    .hit-list div {
+      margin-top: 4px;
+    }
+    main {
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+    }
+    .detail-head {
+      padding: 14px 16px;
+      background: white;
+      border-bottom: 1px solid var(--line);
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 12px;
+    }
+    .detail-title {
+      font-size: 18px;
+      font-weight: 700;
+      margin-bottom: 7px;
+      word-break: break-word;
+    }
+    .detail-sub {
+      font-size: 12px;
+      color: var(--muted);
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .actions {
+      display: flex;
+      align-items: start;
+      gap: 7px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+    .content {
+      display: grid;
+      grid-template-columns: 1fr 320px;
+      min-height: 0;
+      flex: 1;
+    }
+    .messages {
+      overflow: auto;
+      padding: 16px;
+    }
+    .message {
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: white;
+      margin-bottom: 12px;
+      box-shadow: 0 1px 2px rgba(16, 24, 40, .04);
+    }
+    .message .top {
+      padding: 8px 11px;
+      border-bottom: 1px solid #edf0f4;
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      font-size: 12px;
+      color: var(--muted);
+      background: #fbfcfe;
+    }
+    .message.user .top { color: #0f5d3f; background: #f3fbf7; }
+    .message.assistant .top { color: #174b75; background: #f2f7fc; }
+    .message pre {
+      margin: 0;
+      padding: 11px;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-family: "Microsoft YaHei", "Segoe UI", Arial, sans-serif;
+      font-size: 13px;
+      line-height: 1.58;
+    }
+    .side-panel {
+      border-left: 1px solid var(--line);
+      background: #f7f9fb;
+      padding: 14px;
+      overflow: auto;
+    }
+    .box {
+      background: white;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 12px;
+      margin-bottom: 12px;
+    }
+    .box h3 {
+      margin: 0 0 10px 0;
+      font-size: 14px;
+    }
+    .compact-list {
+      display: grid;
+      gap: 8px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .compact-item {
+      border-top: 1px solid #eef2f6;
+      padding-top: 8px;
+      line-height: 1.5;
+      word-break: break-word;
+    }
+    .compact-item:first-child {
+      border-top: 0;
+      padding-top: 0;
+    }
+    .form-row {
+      margin-bottom: 10px;
+      display: grid;
+      gap: 5px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .form-row select {
+      height: 32px;
+      border: 1px solid #b9c3cf;
+      border-radius: 4px;
+      background: white;
+      padding: 0 8px;
+      color: var(--text);
+    }
+    .checkline {
+      display: flex;
+      gap: 7px;
+      align-items: center;
+      margin: 8px 0;
+      color: var(--text);
+      font-size: 13px;
+    }
+    .inline-checks {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      color: var(--text);
+      font-size: 12px;
+    }
+    .small-input {
+      height: 30px;
+      border: 1px solid #b9c3cf;
+      border-radius: 4px;
+      padding: 0 8px;
+      width: 100%;
+      background: white;
+    }
+    .status {
+      min-height: 24px;
+      font-size: 12px;
+      color: var(--muted);
+      padding: 7px 10px;
+      border-top: 1px solid var(--line);
+      background: white;
+    }
+    .empty {
+      margin: 50px auto;
+      max-width: 520px;
+      background: white;
+      border: 1px dashed #b7c3d0;
+      border-radius: 8px;
+      padding: 28px;
+      text-align: center;
+      color: var(--muted);
+    }
+    code { background: #eef2f6; padding: 1px 4px; border-radius: 3px; }
+    @media (max-width: 1050px) {
+      .app { grid-template-columns: 330px 1fr; }
+      .content { grid-template-columns: 1fr; }
+      .side-panel { border-left: 0; border-top: 1px solid var(--line); }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Codex 本地对话历史管理器</h1>
+    <div class="meta" id="statusMeta">正在读取本地数据...</div>
+  </header>
+
+  <div class="app">
+    <aside>
+      <div class="toolbar">
+        <input id="search" type="search" placeholder="搜索标题、ID、工作目录">
+        <button id="refreshBtn">刷新</button>
+        <div class="filter-row">
+          <label><input id="includeArchived" type="checkbox" checked> 显示已归档</label>
+          <select id="statusFilter" title="状态筛选">
+            <option value="all">全部状态</option>
+            <option value="active">仅活动</option>
+            <option value="archived">仅归档</option>
+            <option value="missing">文件缺失</option>
+          </select>
+          <label><input id="fullTextSearch" type="checkbox"> 全文搜索</label>
+          <span id="countInfo">0 个会话</span>
+        </div>
+        <div class="filter-row">
+          <span>搜索角色</span>
+          <label><input class="searchRole" type="checkbox" value="user" checked> 用户</label>
+          <label><input class="searchRole" type="checkbox" value="assistant" checked> 助手</label>
+          <label><input class="searchRole" type="checkbox" value="developer"> 开发者</label>
+          <label><input class="searchRole" type="checkbox" value="system"> 系统</label>
+        </div>
+        <div class="batchbar">
+          <label class="mini-check"><input id="selectAll" type="checkbox"> 全选当前列表</label>
+          <button id="exportSelected">导出选中</button>
+          <button id="backupSelected">备份选中</button>
+          <button id="archiveSelected">批量归档</button>
+          <button id="restoreSelected">批量恢复</button>
+          <button id="repairLatestSelected">恢复最新</button>
+        </div>
+      </div>
+      <div class="session-list" id="sessionList"></div>
+    </aside>
+
+    <main>
+      <div id="emptyState" class="empty">
+        <h2>选择一个会话</h2>
+        <p>左侧会列出 Codex 本地历史。选择后可预览、归档、恢复、修复索引、备份和导出。</p>
+      </div>
+
+      <section id="detail" style="display:none; min-height:0; flex:1; flex-direction:column;">
+        <div class="detail-head">
+          <div>
+            <div class="detail-title" id="detailTitle"></div>
+            <div class="detail-sub" id="detailSub"></div>
+          </div>
+          <div class="actions">
+            <button id="archiveBtn">归档</button>
+            <button id="restoreBtn" class="good">恢复</button>
+            <button id="repairBtn">修复索引</button>
+            <button id="backupBtn">备份</button>
+          </div>
+        </div>
+        <div class="content">
+          <div class="messages" id="messages"></div>
+          <aside class="side-panel">
+            <div class="box">
+              <h3>统计</h3>
+              <div id="stats"></div>
+              <button id="loadFullStats" style="margin-top:10px;">统计全量消息</button>
+            </div>
+            <div class="box">
+              <h3>导出</h3>
+              <div class="form-row">
+                <label>格式</label>
+                <select id="exportFormat">
+                  <option value="markdown">Markdown 文档</option>
+                  <option value="html">HTML 网页</option>
+                  <option value="txt">纯文本 TXT</option>
+                  <option value="json">JSON 原始结构</option>
+                </select>
+              </div>
+              <label class="checkline"><input id="exportSplit" type="checkbox" checked> 多会话时分文件导出</label>
+              <label class="checkline"><input id="exportImages" type="checkbox" checked> 提取图片附件</label>
+              <div class="form-row">
+                <label>导出内容</label>
+                <div class="inline-checks">
+                  <label><input class="contentType" type="checkbox" value="chat_text" checked> 聊天正文</label>
+                  <label><input class="contentType" type="checkbox" value="images" checked> 图片附件</label>
+                  <label><input class="contentType" type="checkbox" value="session_meta" checked> 会话信息</label>
+                  <label><input class="contentType" type="checkbox" value="system_context"> 系统上下文</label>
+                  <label><input class="contentType" type="checkbox" value="tool_trace"> 工具轨迹</label>
+                  <label><input class="contentType" type="checkbox" value="runtime_events"> 运行事件</label>
+                </div>
+              </div>
+              <div class="form-row">
+                <label>导出角色</label>
+                <div class="inline-checks">
+                  <label><input class="exportRole" type="checkbox" value="user" checked> 用户</label>
+                  <label><input class="exportRole" type="checkbox" value="assistant" checked> 助手</label>
+                  <label><input class="exportRole" type="checkbox" value="developer"> 开发者</label>
+                  <label><input class="exportRole" type="checkbox" value="system"> 系统</label>
+                </div>
+              </div>
+              <div class="form-row">
+                <label>导出关键词</label>
+                <input id="exportKeyword" class="small-input" placeholder="留空表示不过滤关键词">
+              </div>
+              <div class="form-row">
+                <label>导出日期范围</label>
+                <input id="exportDateFrom" class="small-input" type="date">
+                <input id="exportDateTo" class="small-input" type="date">
+              </div>
+              <button id="exportCurrent" class="primary">导出当前会话</button>
+              <button id="exportAll">导出筛选列表</button>
+            </div>
+            <div class="box">
+              <h3>原始位置</h3>
+              <div id="pathInfo" style="font-size:12px;line-height:1.55;word-break:break-all;color:var(--muted)"></div>
+            </div>
+            <div class="box">
+              <h3>最近备份</h3>
+              <div id="backupList" class="compact-list"></div>
+            </div>
+            <div class="box">
+              <h3>操作记录</h3>
+              <div id="operationList" class="compact-list"></div>
+            </div>
+            <div class="box">
+              <h3>Web 服务</h3>
+              <button id="shutdownServer" class="danger">关闭当前端口服务</button>
+            </div>
+          </aside>
+        </div>
+      </section>
+    </main>
+  </div>
+  <div class="status" id="statusBar">准备就绪</div>
+
+  <script>
+    const state = {
+      sessions: [],
+      filtered: [],
+      current: null,
+      currentDetail: null,
+      selected: new Set()
+    };
+
+    const $ = (id) => document.getElementById(id);
+
+    function setStatus(text, isError = false) {
+      $("statusBar").textContent = text;
+      $("statusBar").style.color = isError ? "var(--red)" : "var(--muted)";
+    }
+
+    async function api(path, options = {}) {
+      const res = await fetch(path, {
+        ...options,
+        headers: {
+          "Content-Type": "application/json",
+          ...(options.headers || {})
+        }
+      });
+      const data = await res.json();
+      if (!res.ok || data.ok === false) {
+        throw new Error(data.error || `请求失败：${res.status}`);
+      }
+      return data;
+    }
+
+    function formatBytes(bytes) {
+      if (!bytes) return "0 B";
+      const units = ["B", "KiB", "MiB", "GiB"];
+      let value = bytes;
+      let idx = 0;
+      while (value >= 1024 && idx < units.length - 1) {
+        value /= 1024;
+        idx++;
+      }
+      return `${value.toFixed(idx === 0 ? 0 : 2)} ${units[idx]}`;
+    }
+
+    async function loadStatus() {
+      const data = await api("/api/status");
+      $("statusMeta").textContent = `Codex 数据目录：${data.codex_root}`;
+    }
+
+    async function loadSessions() {
+      const q = encodeURIComponent($("search").value.trim());
+      const include = $("includeArchived").checked ? "1" : "0";
+      setStatus("正在扫描 Codex 本地会话...");
+      let data;
+      if ($("fullTextSearch").checked && $("search").value.trim()) {
+        const roles = collectChecked(".searchRole").join(",");
+        setStatus("正在全文搜索消息正文，大会话可能需要稍等...");
+        data = await api(`/api/search?q=${q}&include_archived=${include}&roles=${encodeURIComponent(roles)}`);
+      } else {
+        data = await api(`/api/sessions?q=${q}&include_archived=${include}`);
+      }
+      state.sessions = data.sessions;
+      applyLocalFilters();
+      renderSessions();
+      setStatus(`已载入 ${data.sessions.length} 个会话`);
+      await refreshSideInfo();
+    }
+
+    function applyLocalFilters() {
+      const mode = $("statusFilter").value;
+      state.filtered = state.sessions.filter(s => {
+        if (mode === "active") return !s.archived;
+        if (mode === "archived") return s.archived;
+        if (mode === "missing") return !s.file_exists;
+        return true;
+      });
+      for (const id of [...state.selected]) {
+        if (!state.filtered.some(s => s.id === id)) state.selected.delete(id);
+      }
+    }
+
+    function renderSessions() {
+      const list = $("sessionList");
+      list.innerHTML = "";
+      $("countInfo").textContent = `${state.filtered.length} 个会话，已选 ${state.selected.size} 个`;
+      $("selectAll").checked = state.filtered.length > 0 && state.filtered.every(s => state.selected.has(s.id));
+      for (const s of state.filtered) {
+        const div = document.createElement("div");
+        div.className = `session ${state.current && state.current.id === s.id ? "active" : ""}`;
+        div.onclick = () => selectSession(s.id);
+        div.title = s.title;
+        div.innerHTML = `
+          <div class="session-row">
+            <input class="session-select" type="checkbox" ${state.selected.has(s.id) ? "checked" : ""} aria-label="选择会话">
+            <div>
+              <div class="session-title">${escapeHtml(s.title)}</div>
+              <div class="session-meta">
+                <span class="pill">${escapeHtml(localTime(s.updated_at))}</span>
+                <span class="pill">${formatBytes(s.file_size)}</span>
+                ${s.archived ? `<span class="pill archived">已归档</span>` : `<span class="pill">活动</span>`}
+                ${s.file_exists ? "" : `<span class="pill archived">文件缺失</span>`}
+              </div>
+              ${renderHits(s)}
+            </div>
+          </div>`;
+        div.querySelector(".session-select").onclick = (event) => {
+          event.stopPropagation();
+          if (event.currentTarget.checked) state.selected.add(s.id);
+          else state.selected.delete(s.id);
+          renderSessions();
+        };
+        list.appendChild(div);
+      }
+    }
+
+    function renderHits(session) {
+      if (!session.hits || !session.hits.length) return "";
+      return `<div class="hit-list">${session.hits.map(hit => `
+        <div>${escapeHtml(roleName(hit.role))} · ${escapeHtml(hit.local_time)}：${escapeHtml(hit.snippet)}</div>
+      `).join("")}</div>`;
+    }
+
+    function localTime(value) {
+      if (!value) return "未知时间";
+      const d = new Date(value);
+      if (Number.isNaN(d.getTime())) return value;
+      return d.toLocaleString("zh-CN", { hour12: false });
+    }
+
+    async function selectSession(id) {
+      state.current = state.sessions.find(s => s.id === id);
+      renderSessions();
+      $("emptyState").style.display = "none";
+      $("detail").style.display = "flex";
+      $("detailTitle").textContent = state.current.title;
+      $("detailSub").innerHTML = [
+        `ID：<code>${escapeHtml(state.current.id)}</code>`,
+        `更新时间：${escapeHtml(localTime(state.current.updated_at))}`,
+        `大小：${formatBytes(state.current.file_size)}`,
+        state.current.archived ? "状态：已归档" : "状态：活动"
+      ].join("　");
+      $("archiveBtn").disabled = state.current.archived;
+      $("restoreBtn").disabled = !state.current.archived;
+      $("pathInfo").innerHTML = `
+        <div>JSONL：${escapeHtml(state.current.rollout_path)}</div>
+        <div>工作目录：${escapeHtml(state.current.cwd || "未记录")}</div>
+        <div>模型：${escapeHtml(state.current.model || "未记录")}</div>`;
+      await loadMessages(id);
+    }
+
+    async function loadMessages(id) {
+      setStatus("正在解析会话消息...");
+      const data = await api(`/api/sessions/${encodeURIComponent(id)}?limit=260&counts=0`);
+      state.currentDetail = data;
+      $("stats").innerHTML = `
+        <div>当前预览：最近 ${data.messages.length} 条</div>
+        <div>文件大小：${formatBytes(data.session.file_size)}</div>
+        <div>全量统计：未计算</div>`;
+      const wrap = $("messages");
+      wrap.innerHTML = "";
+      for (const msg of data.messages) {
+        const div = document.createElement("div");
+        div.className = `message ${msg.role}`;
+        const imageInfo = msg.image_count ? ` · 图片 ${msg.image_count}` : "";
+        div.innerHTML = `
+          <div class="top">
+            <span>${escapeHtml(roleName(msg.role))} · ${escapeHtml(msg.local_time || "")}${msg.phase ? " · " + escapeHtml(msg.phase) : ""}${imageInfo}</span>
+            <span>${escapeHtml(msg.turn_id || "")}</span>
+          </div>
+          <pre>${escapeHtml(msg.text || (msg.image_count ? "[图片附件]" : ""))}</pre>`;
+        wrap.appendChild(div);
+      }
+      setStatus(`已显示最近 ${data.messages.length} 条消息；完整导出会包含全量消息`);
+    }
+
+    async function loadFullStats() {
+      if (!state.current) return;
+      setStatus("正在统计全量消息，大会话可能需要几十秒...");
+      const data = await api(`/api/sessions/${encodeURIComponent(state.current.id)}/counts`);
+      $("stats").innerHTML = `
+        <div>消息：${data.counts.messages}</div>
+        <div>用户：${data.counts.user}</div>
+        <div>助手：${data.counts.assistant}</div>
+        <div>图片：${data.counts.images}</div>`;
+      setStatus("全量统计完成");
+    }
+
+    function roleName(role) {
+      return { user: "用户", assistant: "助手", developer: "开发者指令", system: "系统" }[role] || role;
+    }
+
+    function escapeHtml(text) {
+      return String(text ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;");
+    }
+
+    async function archiveCurrent(archived) {
+      if (!state.current) return;
+      const action = archived ? "归档" : "恢复";
+      if (!confirm(`${action}前会自动备份。确定要${action}这个会话吗？`)) return;
+      setStatus(`正在${action}...`);
+      const data = await api(`/api/sessions/${encodeURIComponent(state.current.id)}/archive`, {
+        method: "POST",
+        body: JSON.stringify({ archived })
+      });
+      setStatus(`${action}完成，备份目录：${data.backup}`);
+      await loadSessions();
+      await selectSession(state.current.id);
+    }
+
+    async function archiveBatch(archived) {
+      const ids = [...state.selected];
+      if (!ids.length) {
+        alert("请先勾选会话");
+        return;
+      }
+      const action = archived ? "归档" : "恢复";
+      if (!confirm(`${action}前会自动备份。确定要${action}选中的 ${ids.length} 个会话吗？`)) return;
+      setStatus(`正在批量${action}...`);
+      const data = await api("/api/archive-batch", {
+        method: "POST",
+        body: JSON.stringify({ session_ids: ids, archived })
+      });
+      setStatus(`批量${action}完成：${data.session_ids.length} 个，会话备份：${data.backup}`);
+      await loadSessions();
+    }
+
+    async function repairLatestSelected() {
+      const ids = state.selected.size ? [...state.selected] : state.filtered.map(s => s.id);
+      if (!ids.length) {
+        alert("没有可修复的会话");
+        return;
+      }
+      if (!confirm(`将按本地 JSONL 最后一条消息恢复 ${ids.length} 个会话的最新索引，执行前会自动备份。继续吗？`)) return;
+      setStatus("正在恢复最新记录...");
+      const data = await api("/api/repair-latest", {
+        method: "POST",
+        body: JSON.stringify({ session_ids: ids })
+      });
+      setStatus(`恢复完成：${data.changed.length} 个会话已校正`);
+      await loadSessions();
+    }
+
+    async function repairCurrent() {
+      if (!state.current) return;
+      if (!confirm("修复索引会根据会话最后一条消息校正更新时间，执行前会自动备份。继续吗？")) return;
+      setStatus("正在修复索引...");
+      const data = await api(`/api/sessions/${encodeURIComponent(state.current.id)}/repair-index`, {
+        method: "POST",
+        body: JSON.stringify({})
+      });
+      setStatus(data.changed ? `索引已修复：${data.latest}` : `未修改：${data.reason}`);
+      await loadSessions();
+      await selectSession(state.current.id);
+    }
+
+    async function backupCurrent() {
+      const ids = state.current ? [state.current.id] : [];
+      await backupSessions(ids, ids.length ? "ui-session" : "ui-manual");
+    }
+
+    async function backupSessions(ids, reason = "ui-manual") {
+      setStatus("正在备份...");
+      const data = await api("/api/backup", {
+        method: "POST",
+        body: JSON.stringify({ session_ids: ids, reason })
+      });
+      setStatus(`备份完成：${data.backup}`);
+      await refreshSideInfo();
+    }
+
+    async function exportSessions(ids) {
+      if (!ids.length) {
+        alert("没有可导出的会话");
+        return;
+      }
+      setStatus("正在导出，请稍等...");
+      const data = await api("/api/export", {
+        method: "POST",
+        body: JSON.stringify({
+          session_ids: ids,
+          format: $("exportFormat").value,
+          split: $("exportSplit").checked,
+          include_images: $("exportImages").checked,
+          roles: collectChecked(".exportRole"),
+          keyword: $("exportKeyword").value.trim(),
+          date_from: $("exportDateFrom").value,
+          date_to: $("exportDateTo").value,
+          content_types: collectChecked(".contentType")
+        })
+      });
+      setStatus(`导出完成：${data.path}`);
+      await refreshSideInfo();
+      window.open(data.download, "_blank");
+    }
+
+    function collectChecked(selector) {
+      return [...document.querySelectorAll(selector)]
+        .filter(el => el.checked)
+        .map(el => el.value);
+    }
+
+    async function shutdownServer() {
+      if (!confirm("确定关闭当前 Web 服务端口吗？关闭后这个页面会失去连接，桌面版不受影响。")) return;
+      try {
+        await api("/api/shutdown", { method: "POST", body: JSON.stringify({}) });
+        setStatus("Web 服务正在关闭。需要重新打开时请运行启动脚本或从桌面版启动。");
+      } catch (err) {
+        setStatus("服务可能已经关闭：" + err.message, true);
+      }
+    }
+
+    async function refreshSideInfo() {
+      try {
+        const [backups, operations] = await Promise.all([
+          api("/api/backups"),
+          api("/api/operations")
+        ]);
+        renderBackups(backups.backups || []);
+        renderOperations(operations.operations || []);
+      } catch (err) {
+        console.warn(err);
+      }
+    }
+
+    function renderBackups(items) {
+      const box = $("backupList");
+      box.innerHTML = items.slice(0, 6).map(item => `
+        <div class="compact-item">
+          <div>${escapeHtml(localTime(item.created_at))}</div>
+          <div>原因：${escapeHtml(item.reason || "未记录")}；文件：${item.file_count}</div>
+          <div>${escapeHtml(item.name)}</div>
+        </div>`).join("") || `<div class="compact-item">暂无备份记录</div>`;
+    }
+
+    function renderOperations(items) {
+      const box = $("operationList");
+      box.innerHTML = items.slice(0, 8).map(item => `
+        <div class="compact-item">
+          <div>${escapeHtml(localTime(item.time))} · ${escapeHtml(item.action)}</div>
+          <div>${escapeHtml(JSON.stringify(item.detail || {}))}</div>
+        </div>`).join("") || `<div class="compact-item">暂无操作记录</div>`;
+    }
+
+    $("refreshBtn").onclick = loadSessions;
+    $("includeArchived").onchange = loadSessions;
+    $("fullTextSearch").onchange = loadSessions;
+    document.querySelectorAll(".searchRole").forEach(el => el.onchange = () => $("fullTextSearch").checked && loadSessions());
+    $("statusFilter").onchange = () => {
+      applyLocalFilters();
+      renderSessions();
+    };
+    $("selectAll").onchange = () => {
+      if ($("selectAll").checked) {
+        for (const s of state.filtered) state.selected.add(s.id);
+      } else {
+        for (const s of state.filtered) state.selected.delete(s.id);
+      }
+      renderSessions();
+    };
+    $("search").oninput = () => {
+      clearTimeout(window.__searchTimer);
+      window.__searchTimer = setTimeout(loadSessions, 250);
+    };
+    $("archiveBtn").onclick = () => archiveCurrent(true);
+    $("restoreBtn").onclick = () => archiveCurrent(false);
+    $("repairBtn").onclick = repairCurrent;
+    $("backupBtn").onclick = backupCurrent;
+    $("loadFullStats").onclick = loadFullStats;
+    $("exportCurrent").onclick = () => state.current && exportSessions([state.current.id]);
+    $("exportAll").onclick = () => exportSessions(state.filtered.map(s => s.id));
+    $("exportSelected").onclick = () => exportSessions([...state.selected]);
+    $("backupSelected").onclick = () => backupSessions([...state.selected], "ui-selected");
+    $("archiveSelected").onclick = () => archiveBatch(true);
+    $("restoreSelected").onclick = () => archiveBatch(false);
+    $("repairLatestSelected").onclick = repairLatestSelected;
+    $("shutdownServer").onclick = shutdownServer;
+
+    (async function boot() {
+      try {
+        await loadStatus();
+        await loadSessions();
+      } catch (err) {
+        setStatus(err.message, true);
+      }
+    })();
+  </script>
+</body>
+</html>
