@@ -16,7 +16,7 @@ TEST_APP_HOME = Path(tempfile.mkdtemp(prefix="codex-history-manager-home-"))
 os.environ["CODEX_HISTORY_MANAGER_HOME"] = str(TEST_APP_HOME)
 
 import app as app_module  # noqa: E402
-from app import CodexStore, guess_codex_root, parse_version, save_config  # noqa: E402
+from app import CodexStore, first_run_guidance, guess_codex_root, parse_version, save_config  # noqa: E402
 
 
 SESSION_ID = "11111111-1111-4111-8111-111111111111"
@@ -163,6 +163,13 @@ def main() -> int:
             assert repaired["changed"], "索引修复没有更新任何会话"
 
             assert parse_version("v0.1.10") > parse_version("0.1.2"), "版本比较异常"
+
+            guidance = first_run_guidance(base / ".codex")
+            joined_guidance = "\n".join(guidance.values())
+            assert "state_5.sqlite" in joined_guidance, "首次启动引导缺少状态数据库说明"
+            assert "session_index.jsonl" in joined_guidance, "首次启动引导缺少索引文件说明"
+            assert "sessions" in joined_guidance, "首次启动引导缺少会话目录说明"
+            assert "复制诊断信息" in joined_guidance, "首次启动引导缺少诊断排查说明"
 
             old_export = app_module.EXPORT_ROOT / "old_export.txt"
             new_export = app_module.EXPORT_ROOT / "new_export.txt"

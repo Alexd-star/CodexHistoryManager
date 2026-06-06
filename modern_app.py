@@ -24,6 +24,7 @@ from app import (
     CodexStore,
     SessionInfo,
     check_latest_release,
+    first_run_guidance,
     guess_codex_root,
     iso_to_local_text,
     log_exception,
@@ -406,10 +407,22 @@ class ModernApp(ctk.CTk):
             is_first_run = not self.sessions
             empty = ctk.CTkFrame(self.list_frame, fg_color="#ffffff", corner_radius=16, border_width=1, border_color="#e5ebf2")
             empty.grid(row=0, column=0, sticky="ew", padx=10, pady=30)
-            ctk.CTkLabel(empty, text="引" if is_first_run else "⌕", width=54, height=54, fg_color="#eef6ff", text_color="#1769aa", corner_radius=18, font=("Microsoft YaHei UI", 24, "bold")).pack(pady=(24, 8))
-            ctk.CTkLabel(empty, text="尚未发现 Codex 会话数据" if is_first_run else "未找到会话", font=("Microsoft YaHei UI", 16, "bold"), text_color="#102a43").pack(pady=(0, 6))
-            message = self.first_run_message() if is_first_run else "请调整关键词、状态筛选，或点击“选择数据目录”指向正确的 .codex 目录。"
-            ctk.CTkLabel(empty, text=message, text_color="#667085", justify="left", wraplength=360).pack(padx=24, pady=(0, 24))
+            icon_text = "引" if is_first_run else "⌕"
+            ctk.CTkLabel(empty, text=icon_text, width=54, height=54, fg_color="#eef6ff", text_color="#1769aa", corner_radius=18, font=("Microsoft YaHei UI", 24, "bold")).pack(pady=(24, 8))
+            if is_first_run:
+                guide = first_run_guidance(self.store.codex_root)
+                ctk.CTkLabel(empty, text=guide["title"], font=("Microsoft YaHei UI", 16, "bold"), text_color="#102a43").pack(pady=(0, 6))
+                ctk.CTkLabel(empty, text=guide["summary"], text_color="#475467", justify="left", wraplength=360).pack(padx=24, pady=(0, 8))
+                ctk.CTkLabel(empty, text=guide["checklist"], text_color="#667085", justify="left", wraplength=360).pack(padx=24, pady=(0, 16))
+                actions = ctk.CTkFrame(empty, fg_color="transparent")
+                actions.pack(fill="x", padx=24, pady=(0, 24))
+                ctk.CTkButton(actions, text="选择数据目录", command=self.choose_root, height=34).pack(fill="x", pady=(0, 8))
+                ctk.CTkButton(actions, text="打开帮助文档", fg_color="#eef2ff", text_color="#174b75", command=lambda: self.open_resource_or_url("README.md", "https://github.com/Alexd-star/CodexHistoryManager#readme"), height=34).pack(fill="x", pady=(0, 8))
+                ctk.CTkButton(actions, text="复制诊断信息", fg_color="#f8fafc", text_color="#344054", command=self.copy_diagnostics, height=34).pack(fill="x")
+            else:
+                ctk.CTkLabel(empty, text="未找到会话", font=("Microsoft YaHei UI", 16, "bold"), text_color="#102a43").pack(pady=(0, 6))
+                message = "请调整关键词、状态筛选，或点击“选择数据目录”指向正确的 .codex 目录。"
+                ctk.CTkLabel(empty, text=message, text_color="#667085", justify="left", wraplength=360).pack(padx=24, pady=(0, 24))
             return
         self.render_list_batch(token, 0)
 
@@ -430,13 +443,8 @@ class ModernApp(ctk.CTk):
         self.count_label.configure(text=f"会话列表  {len(self.filtered)} 个 / 已选 {len(self.selected_ids)} 个")
 
     def first_run_message(self) -> str:
-        return (
-            "当前目录下没有找到可读取的 Codex 历史记录。\n\n"
-            "可按下面顺序检查：\n"
-            "1. 先确认本机已经使用 Codex 产生过至少一次对话；\n"
-            "2. 点击左侧“选择数据目录”，选择包含 state_5.sqlite、session_index.jsonl 或 sessions 文件夹的 .codex 目录；\n"
-            "3. 如果仍然为空，打开“管理 > 诊断中心”，复制诊断信息用于排查。"
-        )
+        guide = first_run_guidance(self.store.codex_root)
+        return f"{guide['body']}\n\n{guide['checklist']}"
 
     def _session_row(self, idx: int, session: dict) -> None:
         active = session["id"] == self.current_id
@@ -995,12 +1003,62 @@ class ModernApp(ctk.CTk):
 
     def render_empty_preview(self, text: str) -> None:
         self.clear_preview_widgets()
+        if not self.sessions and ("没有可读取" in text or "没有找到可读取" in text):
+            self.render_first_run_preview()
+            return
         box = ctk.CTkFrame(self.preview, fg_color="#ffffff", corner_radius=18, border_width=1, border_color="#e5ebf2")
         box.grid(row=0, column=0, sticky="ew", padx=24, pady=70)
         ctk.CTkLabel(box, text="读", width=58, height=58, fg_color="#eef6ff", text_color="#1769aa", corner_radius=18, font=("Microsoft YaHei UI", 24, "bold")).pack(pady=(26, 10))
         ctk.CTkLabel(box, text="阅读区", font=("Microsoft YaHei UI", 18, "bold"), text_color="#102a43").pack(pady=(0, 8))
         ctk.CTkLabel(box, text=text, text_color="#667085", font=("Microsoft YaHei UI", 13), justify="center", wraplength=520).pack(padx=28, pady=(0, 8))
         ctk.CTkLabel(box, text="提示：单击中间会话卡片即可预览；双击会话或点击加号可加入批量操作。", text_color="#98a2b3", font=("Microsoft YaHei UI", 11), wraplength=520).pack(padx=28, pady=(0, 26))
+
+    def render_first_run_preview(self) -> None:
+        guide = first_run_guidance(self.store.codex_root)
+        box = ctk.CTkFrame(self.preview, fg_color="#ffffff", corner_radius=18, border_width=1, border_color="#dbe7f5")
+        box.grid(row=0, column=0, sticky="nsew", padx=24, pady=36)
+        box.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(
+            box,
+            text="开始使用",
+            width=68,
+            height=68,
+            fg_color="#eef6ff",
+            text_color="#1769aa",
+            corner_radius=20,
+            font=("Microsoft YaHei UI", 18, "bold"),
+        ).grid(row=0, column=0, pady=(30, 12))
+        ctk.CTkLabel(box, text="连接你的 Codex 本地历史", font=("Microsoft YaHei UI", 22, "bold"), text_color="#102a43").grid(row=1, column=0, pady=(0, 8))
+        ctk.CTkLabel(box, text=guide["body"], text_color="#475467", font=("Microsoft YaHei UI", 14), justify="left", wraplength=640).grid(row=2, column=0, sticky="ew", padx=36, pady=(0, 16))
+
+        path_card = ctk.CTkFrame(box, fg_color="#f8fbff", corner_radius=14, border_width=1, border_color="#e5ebf2")
+        path_card.grid(row=3, column=0, sticky="ew", padx=36, pady=(0, 16))
+        path_card.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(path_card, text="当前读取目录", text_color="#1769aa", font=("Microsoft YaHei UI", 13, "bold")).grid(row=0, column=0, sticky="w", padx=16, pady=(14, 4))
+        ctk.CTkLabel(path_card, text=str(self.store.codex_root), text_color="#344054", justify="left", wraplength=600).grid(row=1, column=0, sticky="ew", padx=16, pady=(0, 14))
+
+        steps = ctk.CTkFrame(box, fg_color="#ffffff")
+        steps.grid(row=4, column=0, sticky="ew", padx=36, pady=(0, 18))
+        steps.grid_columnconfigure((0, 1, 2), weight=1)
+        cards = [
+            ("1", "选择 .codex", "选择包含历史数据库或 sessions 文件夹的数据目录。"),
+            ("2", "刷新列表", "软件会自动读取会话、标题、更新时间和消息预览。"),
+            ("3", "恢复与导出", "确认会话后可恢复最新、归档、备份或导出文档。"),
+        ]
+        for idx, (num, title, desc) in enumerate(cards):
+            card = ctk.CTkFrame(steps, fg_color="#f9fafb", corner_radius=14, border_width=1, border_color="#e5ebf2")
+            card.grid(row=0, column=idx, sticky="nsew", padx=(0 if idx == 0 else 8, 0 if idx == 2 else 8))
+            ctk.CTkLabel(card, text=num, width=30, height=30, fg_color="#e0f2fe", text_color="#1769aa", corner_radius=10, font=("Microsoft YaHei UI", 13, "bold")).pack(anchor="w", padx=14, pady=(14, 8))
+            ctk.CTkLabel(card, text=title, text_color="#102a43", font=("Microsoft YaHei UI", 13, "bold")).pack(anchor="w", padx=14, pady=(0, 4))
+            ctk.CTkLabel(card, text=desc, text_color="#667085", justify="left", wraplength=170).pack(anchor="w", padx=14, pady=(0, 14))
+
+        actions = ctk.CTkFrame(box, fg_color="transparent")
+        actions.grid(row=5, column=0, pady=(0, 30))
+        ctk.CTkButton(actions, text="选择数据目录", width=130, command=self.choose_root).pack(side="left", padx=6)
+        ctk.CTkButton(actions, text="打开帮助", width=110, fg_color="#eef2ff", text_color="#174b75", command=lambda: self.open_resource_or_url("README.md", "https://github.com/Alexd-star/CodexHistoryManager#readme")).pack(side="left", padx=6)
+        ctk.CTkButton(actions, text="打开用户数据目录", width=140, fg_color="#f8fafc", text_color="#344054", command=lambda: self.open_directory(DATA_ROOT)).pack(side="left", padx=6)
+        ctk.CTkButton(actions, text="复制诊断", width=110, fg_color="#f8fafc", text_color="#344054", command=self.copy_diagnostics).pack(side="left", padx=6)
 
     def render_preview(self, payload: dict) -> None:
         self.clear_preview_widgets()

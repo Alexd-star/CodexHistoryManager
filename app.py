@@ -69,6 +69,26 @@ def read_version() -> str:
 APP_VERSION = read_version()
 
 
+def first_run_guidance(codex_root: Path | str) -> dict[str, str]:
+    root_text = str(codex_root)
+    expected = "state_5.sqlite、session_index.jsonl 或 sessions 文件夹"
+    return {
+        "title": "尚未发现 Codex 会话数据",
+        "summary": f"当前读取的数据目录是：{root_text}",
+        "body": (
+            "这通常不是软件故障，而是当前目录里还没有可读取的 Codex 历史记录。\n\n"
+            "请先确认本机已经使用 Codex 产生过至少一次对话；如果已经使用过，"
+            f"请点击“选择数据目录”，选择包含 {expected} 的 .codex 目录。"
+        ),
+        "checklist": (
+            "1. 本机已经产生过 Codex 对话；\n"
+            f"2. 选择的数据目录中能看到 {expected}；\n"
+            "3. 仍为空时，复制诊断信息并随反馈包一起发送给维护人员。"
+        ),
+        "expected": expected,
+    }
+
+
 def setup_logging() -> logging.Logger:
     LOG_ROOT.mkdir(parents=True, exist_ok=True)
     logger = logging.getLogger("codex_history_manager")
